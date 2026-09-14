@@ -1,0 +1,14 @@
+{
+  "name": "mod-insight-api",
+  "version": "1.0.0",
+  "description": "Mod Insight backend - Azure Functions (HTTP API + daily Thunderstore fetch timer)",
+  "main": "src/functions/*.js",
+  "scripts": {
+    "start": "func start",
+    "test": "echo \"No tests yet...\""
+  },
+  "dependencies": {
+    "@azure/functions": "^4.0.0"
+  },
+  "devDependencies": {}
+}
