@@ -1,16 +1,14 @@
 // ============================================================
-// GetModSnapshots.js
+// GetModVersionSnapshots.js
 //
-// GET /api/mods/{modId}/snapshots?from=YYYY-MM-DD&to=YYYY-MM-DD
-// 折れ線グラフ用の時系列データを古い順に返す。
+// GET /api/mods/{modId}/version-snapshots?from=YYYY-MM-DD&to=YYYY-MM-DD
+// バージョンごとのダウンロード数の時系列を古い順に返す。
+// 「新しいバージョンが公開されたあと、利用者がどれくらいの速さで移行したか」を
+// 積み上げグラフで見るために使う。
 //
-// クエリパラメータ(どちらも省略可):
-//   from  この日時以降のデータだけ返す(含む)
-//   to    この日時以前のデータだけ返す(含む)
-//   形式は "2026-09-01" のような日付、または ISO 形式の日時。
-//   "2026-09-01" だけを指定した場合は UTC の 0 時として扱われる。
+// クエリパラメータは GetModSnapshots と同じ(from / to、どちらも省略可)。
 //
-// 応答: 200 [{ captured_at, download_count, rating_score }, ...]
+// 応答: 200 [{ version_number, release_date, captured_at, download_count }, ...]
 //       400 { error }(modId が数値でない、from / to が日付として読めない)
 //       404 { error }(その mod_id の mod がない)
 //       500 { error }
@@ -20,10 +18,10 @@ const { app } = require("@azure/functions");
 const db = require("../db");
 const { parseModId, parseDateParam, errorResponse } = require("../httpUtil");
 
-app.http("GetModSnapshots", {
+app.http("GetModVersionSnapshots", {
   methods: ["GET"],
   authLevel: "anonymous",
-  route: "mods/{modId}/snapshots",
+  route: "mods/{modId}/version-snapshots",
   handler: async (request, context) => {
     const modId = parseModId(request);
     if (modId === null) {
@@ -44,11 +42,11 @@ app.http("GetModSnapshots", {
       if (mod === null) {
         return errorResponse(404, "指定された mod は存在しません");
       }
-      const snapshots = await db.listSnapshots(modId, from.value, to.value);
-      return { status: 200, jsonBody: snapshots };
+      const rows = await db.listVersionSnapshots(modId, from.value, to.value);
+      return { status: 200, jsonBody: rows };
     } catch (err) {
-      context.error(`mod ${modId} のスナップショット取得に失敗しました:`, err);
-      return errorResponse(500, "スナップショットの取得に失敗しました");
+      context.error(`mod ${modId} のバージョン別スナップショット取得に失敗しました:`, err);
+      return errorResponse(500, "バージョン別スナップショットの取得に失敗しました");
     }
   },
 });

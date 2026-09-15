@@ -15,6 +15,7 @@
 //        - versions[].downloads を合計して総ダウンロード数を計算
 //        - mods テーブルへ UPSERT(platform='thunderstore', external_id='ryuka_labs/{mod名}')
 //        - versions[] の各バージョンを mod_versions テーブルへ UPSERT(新しいものだけ増える)
+//        - 各バージョン単体のダウンロード数を version_snapshots テーブルへ INSERT
 //        - snapshots テーブルへ 1 行 INSERT
 //      ※ 1 件で失敗しても他のパッケージの処理は続ける
 //   4. 最後に fetch_logs へ実行結果を 1 行 INSERT
@@ -83,13 +84,20 @@ async function savePackage(pkg, capturedAt) {
   };
   const modId = await db.upsertMod(modRecord);
 
-  // mod_versions テーブル用のデータ(バージョンごとに 1 行)
+  // バージョンごとの処理:
+  //   - mod_versions テーブルへ UPSERT(新しいバージョンだけ増える)
+  //   - version_snapshots テーブルへ、そのバージョン単体のダウンロード数を 1 行 INSERT
   // date_created は "2025-03-01T12:34:56.789Z" のような ISO 文字列なので、先頭 10 文字 = 日付部分だけ使う
   for (const version of pkg.versions) {
-    await db.upsertModVersion({
+    const versionId = await db.upsertModVersion({
       mod_id: modId,
       version_number: version.version_number,
       release_date: version.date_created ? version.date_created.slice(0, 10) : null,
+    });
+    await db.insertVersionSnapshot({
+      version_id: versionId,
+      captured_at: capturedAt,
+      download_count: version.downloads,
     });
   }
 

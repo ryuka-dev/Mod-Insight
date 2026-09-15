@@ -15,7 +15,8 @@
 //
 // 提供する関数(書き込み。取得ジョブから使う):
 //   upsertMod(mod)              mods テーブルへ MERGE(あれば更新、なければ挿入)し、mod_id を返す
-//   upsertModVersion(version)   mod_versions テーブルへ MERGE(同じ mod_id + version_number があれば何もしない)
+//   upsertModVersion(version)   mod_versions テーブルへ MERGE(同じ mod_id + version_number があれば何もしない)し、version_id を返す
+//   insertVersionSnapshot(vs)   version_snapshots テーブルへ 1 行 INSERT する
 //   insertSnapshot(snapshot)    snapshots テーブルへ 1 行 INSERT する
 //   insertFetchLog(log)         fetch_logs テーブルへ 1 行 INSERT する
 //
@@ -25,6 +26,8 @@
 //   getModSummary(modId)        最新スナップショットと最新バージョンをまとめたもの(なければ null)
 //   listSnapshots(modId, from, to)  期間指定つきの時系列データ(古い順)
 //   listModVersions(modId)      バージョン履歴(新しい順)
+//   listVersionSnapshots(modId, from, to)  バージョンごとの時系列データ(古い順)
+//   getOverview(from)           全 mod の最新値と期間開始時点の値、合計の推移
 //   listFetchLogs(limit)        取得ジョブの実行記録(新しい順)
 // ============================================================
 
@@ -177,14 +180,16 @@ async function insertFetchLog(log) {
 
 // mod_versions テーブルへ挿入する(既にあれば何もしない)
 // 入力: { mod_id, version_number, release_date(YYYY-MM-DD 文字列 or null) }
-// 出力: なし
+// 出力: version_id(数値)
 // バージョンは一度公開されたら変わらないので、(mod_id, version_number) が一致する行が
 // 既にあれば更新もせずそのまま残す。取得ジョブは毎日全バージョンをこの関数に通すため、
 // 新しく公開されたバージョンだけが自然に追加されていく。
+// MERGE のあとに SELECT で version_id を取り直しているのは、
+// 「既にあった」場合には MERGE が何も返さないため。
 async function upsertModVersion(version) {
   const pool = await getPool();
 
-  await pool
+  const result = await pool
     .request()
     .input("mod_id", sql.Int, version.mod_id)
     .input("version_number", sql.NVarChar(50), version.version_number)
@@ -196,6 +201,29 @@ async function upsertModVersion(version) {
       WHEN NOT MATCHED THEN
         INSERT (mod_id, version_number, release_date)
         VALUES (@mod_id, @version_number, @release_date);
+
+      SELECT version_id
+      FROM mod_versions
+      WHERE mod_id = @mod_id AND version_number = @version_number;
+    `);
+
+  return result.recordset[0].version_id;
+}
+
+// version_snapshots テーブルへ 1 行挿入する
+// 入力: { version_id, captured_at(ISO 文字列), download_count }
+// 出力: なし
+async function insertVersionSnapshot(versionSnapshot) {
+  const pool = await getPool();
+
+  await pool
+    .request()
+    .input("version_id", sql.Int, versionSnapshot.version_id)
+    .input("captured_at", sql.DateTime2, new Date(versionSnapshot.captured_at))
+    .input("download_count", sql.Int, versionSnapshot.download_count)
+    .query(`
+      INSERT INTO version_snapshots (version_id, captured_at, download_count)
+      VALUES (@version_id, @captured_at, @download_count);
     `);
 }
 
@@ -333,6 +361,90 @@ async function listModVersions(modId) {
   return result.recordset;
 }
 
+// バージョンごとの時系列データを古い順に返す(バージョン別グラフ用)
+// 入力: modId(数値)、from / to(Date または null)
+// 出力: [{ version_number, release_date, captured_at, download_count }, ...]
+//       同じ captured_at の中ではバージョンの公開日順
+async function listVersionSnapshots(modId, from, to) {
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input("mod_id", sql.Int, modId)
+    .input("from", sql.DateTime2, from)
+    .input("to", sql.DateTime2, to)
+    .query(`
+      SELECT v.version_number, v.release_date, vs.captured_at, vs.download_count
+      FROM version_snapshots vs
+      INNER JOIN mod_versions v ON v.version_id = vs.version_id
+      WHERE v.mod_id = @mod_id
+        AND (@from IS NULL OR vs.captured_at >= @from)
+        AND (@to IS NULL OR vs.captured_at <= @to)
+      ORDER BY vs.captured_at ASC, v.release_date ASC, v.version_id ASC;
+    `);
+
+  return result.recordset;
+}
+
+// 全 mod の一覧画面用のデータをまとめて返す
+// 入力: from(Date または null。期間の開始。null なら「最初の取得」から)
+// 出力: {
+//   mods:   [{ mod_id, name, captured_at, latest_download_count, rating_score,
+//              start_download_count, latest_version, latest_release_date }, ...]  ※ 最新ダウンロード数の多い順
+//   totals: [{ captured_at, download_count, mod_count }, ...]  ※ 取得回ごとの全 mod 合計(古い順)
+// }
+// 1 mod につき「最新のスナップショット」「期間開始後で最初のスナップショット」「最新バージョン」を
+// 1 行ずつ選ぶために ROW_NUMBER() を使っている。
+// ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY captured_at DESC) は
+// 「mod ごとに captured_at の新しい順で 1, 2, 3... と番号を振る」という意味で、
+// 番号が 1 の行だけ残せば「mod ごとに一番新しい 1 行」になる。
+async function getOverview(from) {
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input("from", sql.DateTime2, from)
+    .query(`
+      WITH latest AS (
+        SELECT mod_id, captured_at, download_count, rating_score,
+               ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY captured_at DESC) AS rn
+        FROM snapshots
+      ),
+      start_point AS (
+        SELECT mod_id, download_count,
+               ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY captured_at ASC) AS rn
+        FROM snapshots
+        WHERE (@from IS NULL OR captured_at >= @from)
+      ),
+      latest_version AS (
+        SELECT mod_id, version_number, release_date,
+               ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY release_date DESC, version_id DESC) AS rn
+        FROM mod_versions
+      )
+      SELECT m.mod_id, m.name,
+             l.captured_at, l.download_count AS latest_download_count, l.rating_score,
+             sp.download_count AS start_download_count,
+             lv.version_number AS latest_version, lv.release_date AS latest_release_date
+      FROM mods m
+      LEFT JOIN latest l ON l.mod_id = m.mod_id AND l.rn = 1
+      LEFT JOIN start_point sp ON sp.mod_id = m.mod_id AND sp.rn = 1
+      LEFT JOIN latest_version lv ON lv.mod_id = m.mod_id AND lv.rn = 1
+      WHERE m.is_deprecated = 0
+      ORDER BY l.download_count DESC, m.name ASC;
+
+      SELECT captured_at, SUM(download_count) AS download_count, COUNT(*) AS mod_count
+      FROM snapshots
+      WHERE (@from IS NULL OR captured_at >= @from)
+      GROUP BY captured_at
+      ORDER BY captured_at ASC;
+    `);
+
+  return {
+    mods: result.recordsets[0],
+    totals: result.recordsets[1],
+  };
+}
+
 // 取得ジョブの実行記録を新しい順に返す
 // 入力: limit(返す最大件数)
 // 出力: [{ log_id, run_at, status, error_message, records_fetched }, ...]
@@ -354,6 +466,7 @@ async function listFetchLogs(limit) {
 module.exports = {
   upsertMod,
   upsertModVersion,
+  insertVersionSnapshot,
   insertSnapshot,
   insertFetchLog,
   listMods,
@@ -361,5 +474,7 @@ module.exports = {
   getModSummary,
   listSnapshots,
   listModVersions,
+  listVersionSnapshots,
+  getOverview,
   listFetchLogs,
 };
