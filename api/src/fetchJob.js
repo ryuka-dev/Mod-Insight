@@ -126,6 +126,7 @@ async function runFetchJob(logger) {
   // この実行の日時。全 mod のスナップショットに同じ値を入れることで
   // 「同じ回の取得」であることが分かるようにする
   const runAt = new Date().toISOString();
+  const startedAt = Date.now();  // 所要時間の計測用(終了ログに出す。Application Insights で推移を追える)
   logger.log(`取得ジョブ開始: ${runAt}`);
 
   // fetch_logs に書く結果。処理の途中で更新していく
@@ -147,6 +148,7 @@ async function runFetchJob(logger) {
     result.status = "failed";
     result.error_message = `API 取得失敗: ${err.message}`;
     await writeFetchLog(result, logger);
+    logger.log(`取得ジョブ終了: status=${result.status}, 保存件数=0, 所要時間=${Date.now() - startedAt}ms`);
     return result;
   }
 
@@ -176,7 +178,8 @@ async function runFetchJob(logger) {
 
   // ---- 4. 実行記録を保存 ----
   await writeFetchLog(result, logger);
-  logger.log(`取得ジョブ終了: status=${result.status}, 保存件数=${result.records_fetched}`);
+  const elapsedMs = Date.now() - startedAt;
+  logger.log(`取得ジョブ終了: status=${result.status}, 保存件数=${result.records_fetched}, 所要時間=${elapsedMs}ms`);
   return result;
 }
 
