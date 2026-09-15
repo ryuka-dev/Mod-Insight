@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mod Insight</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!--
+    画面の構成(上から順に):
+      1. ヘッダー        タイトルと一言説明
+      2. フィルター行    どの mod を見るか、どの期間を見るか。ここで選んだ条件が下の全部に効く
+      3. サマリータイル  今の数字(総ダウンロード数、期間内の増加、評価、最新バージョンなど)
+      4. 折れ線グラフ    ダウンロード数の推移。縦線はバージョン公開日
+      5. 表             バージョン履歴と取得ジョブの実行記録
+    データはすべて app.js が API から取ってきて、この HTML の空の要素に流し込む。
+  -->
+
+  <header class="page-header">
+    <h1>Mod Insight</h1>
+    <p class="subtitle">Thunderstore で公開中の mod のダウンロード数を毎日記録し、推移を可視化するダッシュボード</p>
+  </header>
+
+  <section class="filters" aria-label="表示条件">
+    <label class="filter-item">
+      <span class="filter-label">Mod</span>
+      <select id="modSelect" aria-label="表示する mod"></select>
+    </label>
+    <div class="filter-item range-buttons" role="group" aria-label="表示期間">
+      <span class="filter-label">期間</span>
+      <button type="button" data-days="7">7日</button>
+      <button type="button" data-days="30" class="is-selected">30日</button>
+      <button type="button" data-days="90">90日</button>
+      <button type="button" data-days="all">全期間</button>
+    </div>
+  </section>
+
+  <p id="errorBox" class="error-box" hidden></p>
+
+  <main id="content" class="content">
+    <section class="stats" aria-label="サマリー">
+      <div class="stat-tile stat-tile-hero">
+        <span class="stat-label">総ダウンロード数</span>
+        <span class="stat-value" id="statDownloads">–</span>
+        <span class="stat-sub" id="statCapturedAt"></span>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-label">期間内の増加</span>
+        <span class="stat-value" id="statDelta">–</span>
+        <span class="stat-sub" id="statDeltaSub"></span>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-label">評価スコア</span>
+        <span class="stat-value" id="statRating">–</span>
+        <span class="stat-sub">Thunderstore の rating_score</span>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-label">最新バージョン</span>
+        <span class="stat-value" id="statVersion">–</span>
+        <span class="stat-sub" id="statVersionSub"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">ダウンロード数の推移</h2>
+      <p class="card-note">縦線はバージョンの公開日。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。</p>
+      <div class="chart-wrap">
+        <canvas id="downloadsChart" role="img" aria-label="ダウンロード数の折れ線グラフ"></canvas>
+      </div>
+      <details class="table-details">
+        <summary>データを表で見る</summary>
+        <div class="table-scroll">
+          <table id="snapshotTable">
+            <thead>
+              <tr><th>取得日時</th><th class="num">ダウンロード数</th><th class="num">前回比</th><th class="num">評価</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <section class="two-columns">
+      <div class="card">
+        <h2 class="card-title">バージョン履歴</h2>
+        <div class="table-scroll">
+          <table id="versionTable">
+            <thead>
+              <tr><th>バージョン</th><th>公開日</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2 class="card-title">取得ジョブの実行記録</h2>
+        <p class="card-note">毎日 0:00(日本時間)に自動実行。直近 10 件を表示。</p>
+        <div class="table-scroll">
+          <table id="logTable">
+            <thead>
+              <tr><th>実行日時</th><th>結果</th><th class="num">件数</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <p>データ取得元: Thunderstore 公開 API(sulfur コミュニティ)。バックエンド: Azure Functions + Azure SQL Database。</p>
+  </footer>
+
+  <!-- グラフ描画ライブラリ(Chart.js)と、時間軸を扱うための日付アダプター -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
