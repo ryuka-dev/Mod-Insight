@@ -1,0 +1,44 @@
+# ============================================================
+# deploy-web.yml
+#
+# フロントエンド(web/ ディレクトリ)を Azure Static Web Apps に自動配置する。
+#
+# 動くタイミング:
+#   - main ブランチに push されたとき(web/ 配下かこのファイル自体が変わった場合だけ)
+#   - GitHub の Actions 画面から手動実行したとき(workflow_dispatch)
+#
+# 仕組み:
+#   Azure 側で発行した「デプロイトークン」を GitHub のリポジトリ Secrets に
+#   AZURE_STATIC_WEB_APPS_API_TOKEN という名前で登録してあり、
+#   公式アクション static-web-apps-deploy がそれを使って web/ の中身をアップロードする。
+#   web/ はビルド不要の静的ファイルなので skip_app_build: true にしている。
+#
+# バックエンド(api/)はこのワークフローでは配置しない(別途 zip deploy で行う)。
+# ============================================================
+
+name: Deploy web to Azure Static Web Apps
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Static Web Apps へ配置
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: web
+          output_location: ""
+          skip_app_build: true
+          skip_api_build: true

@@ -6,12 +6,14 @@
 //
 // 流れ:
 //   1. 起動時に GET /api/mods で mod 一覧を取り、セレクトボックスに入れる
-//   2. mod か期間が変わるたびに、その mod の
-//        GET /api/mods/{id}/summary   (今の数字)
-//        GET /api/mods/{id}/snapshots (時系列。期間は ?from= で絞る)
-//        GET /api/mods/{id}/versions  (バージョン履歴)
+//   2. 期間が変わるたびに GET /api/overview で全 mod の一覧を取り直す
+//   3. mod か期間が変わるたびに、その mod の
+//        GET /api/mods/{id}/summary            (今の数字)
+//        GET /api/mods/{id}/snapshots          (時系列。期間は ?from= で絞る)
+//        GET /api/mods/{id}/versions           (バージョン履歴)
+//        GET /api/mods/{id}/version-snapshots  (バージョンごとの時系列)
 //      を同時に取りに行き、揃ったら画面を描き直す
-//   3. GET /api/fetch/logs は mod に関係ないので起動時に 1 回だけ取る
+//   4. GET /api/fetch/logs は mod に関係ないので起動時に 1 回だけ取る
 //
 // 画面に出す文字列はすべて textContent で入れる(API から来た文字列を
 // innerHTML に入れると、万一 HTML が混ざっていたときにそのまま実行されてしまうため)。
@@ -22,19 +24,28 @@ const API_BASE = window.MOD_INSIGHT_CONFIG.apiBaseUrl;
 // 表示期間ボタンの値(日数)。"all" は絞り込みなし
 const RANGE_PRESETS = { "7": 7, "30": 30, "90": 90, "all": null };
 
+// バージョン別グラフで個別に表示するバージョンの数(それより古いものは「その他」)
+const VERSION_SERIES_LIMIT = 4;
+
 // 今画面に表示している状態。描画関数はすべてここを見る
 const state = {
-  mods: [],          // mod 一覧
-  modId: null,       // 選択中の mod_id
-  rangeDays: 30,     // 選択中の期間(日数)。null なら全期間
-  rangeFrom: null,   // 選択中の期間の開始時刻(ミリ秒)。全期間なら null。loadMod が設定する
-  summary: null,     // summary API の結果
-  snapshots: [],     // snapshots API の結果(古い順)
-  versions: [],      // versions API の結果(新しい順)
+  mods: [],              // mod 一覧
+  modId: null,           // 選択中の mod_id
+  rangeDays: 30,         // 選択中の期間(日数)。null なら全期間
+  rangeFrom: null,       // 選択中の期間の開始時刻(ミリ秒)。全期間なら null。loadMod / loadOverview が設定する
+  overview: null,        // overview API の結果
+  summary: null,         // summary API の結果
+  snapshots: [],         // snapshots API の結果(古い順)
+  versions: [],          // versions API の結果(新しい順)
+  versionSnapshots: [],  // version-snapshots API の結果(古い順)
 };
 
 // Chart.js のインスタンス。描き直すときは destroy してから作り直す
-let chart = null;
+const charts = {
+  totals: null,     // 全 mod 合計の推移
+  downloads: null,  // 選択中 mod のダウンロード数推移
+  versions: null,   // 選択中 mod のバージョン別積み上げ
+};
 
 // ---- 画面の要素をまとめて取得 ----
 const el = {
@@ -42,6 +53,16 @@ const el = {
   rangeButtons: document.querySelectorAll(".range-buttons button"),
   errorBox: document.getElementById("errorBox"),
   content: document.getElementById("content"),
+  // 全 mod の一覧
+  ovTotal: document.getElementById("ovTotal"),
+  ovTotalSub: document.getElementById("ovTotalSub"),
+  ovDelta: document.getElementById("ovDelta"),
+  ovDeltaSub: document.getElementById("ovDeltaSub"),
+  ovModCount: document.getElementById("ovModCount"),
+  totalsCanvas: document.getElementById("totalsChart"),
+  overviewTableBody: document.querySelector("#overviewTable tbody"),
+  // 選択中 mod の詳細
+  detailTitle: document.getElementById("detailTitle"),
   statDownloads: document.getElementById("statDownloads"),
   statCapturedAt: document.getElementById("statCapturedAt"),
   statDelta: document.getElementById("statDelta"),
@@ -49,8 +70,11 @@ const el = {
   statRating: document.getElementById("statRating"),
   statVersion: document.getElementById("statVersion"),
   statVersionSub: document.getElementById("statVersionSub"),
-  chartCanvas: document.getElementById("downloadsChart"),
+  downloadsCanvas: document.getElementById("downloadsChart"),
   snapshotTableBody: document.querySelector("#snapshotTable tbody"),
+  versionsCanvas: document.getElementById("versionsChart"),
+  versionSnapshotTableHead: document.querySelector("#versionSnapshotTable thead"),
+  versionSnapshotTableBody: document.querySelector("#versionSnapshotTable tbody"),
   versionTableBody: document.querySelector("#versionTable tbody"),
   logTableBody: document.querySelector("#logTable tbody"),
 };
@@ -87,6 +111,7 @@ function formatNumber(value) {
 
 // +25 / -3 / ±0 のように符号つきで表示する
 function formatSigned(value) {
+  if (value === null || value === undefined) return "–";
   if (value > 0) return `+${formatNumber(value)}`;
   if (value < 0) return `−${formatNumber(Math.abs(value))}`;
   return "±0";
@@ -110,6 +135,14 @@ function formatDate(iso) {
 // CSS 変数の値を読む(グラフの色を style.css と揃えるため)
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// 期間の開始 → snapshots 系 API の ?from= 文字列("" なら絞り込みなし)
+function rangeQuery() {
+  if (state.rangeFrom === null) {
+    return "";
+  }
+  return `?from=${encodeURIComponent(new Date(state.rangeFrom).toISOString())}`;
 }
 
 // エラー表示の出し入れ
@@ -147,101 +180,88 @@ function appendEmptyRow(tbody, columnCount, message) {
   tbody.appendChild(tr);
 }
 
-// ============================================================
-// データ取得
-// ============================================================
-
-// 選択中の mod と期間に合わせて 3 つの API を同時に呼び、state を更新して描画する
-async function loadMod() {
-  if (state.modId === null) {
-    return;
-  }
-
-  // 期間 → snapshots API の ?from= に変換(全期間なら付けない)
-  // 同じ日時をグラフの横軸の左端にも使う(state.rangeFrom)。こうすると
-  // データがまだ無い期間も軸に含まれ、その間に公開されたバージョンの縦線が見える
-  let query = "";
-  state.rangeFrom = null;
-  if (state.rangeDays !== null) {
-    const from = new Date();
-    from.setUTCDate(from.getUTCDate() - state.rangeDays);
-    state.rangeFrom = from.getTime();
-    query = `?from=${encodeURIComponent(from.toISOString())}`;
-  }
-
-  el.content.classList.add("is-loading");
-  clearError();
-
-  try {
-    const [summary, snapshots, versions] = await Promise.all([
-      fetchJson(`/mods/${state.modId}/summary`),
-      fetchJson(`/mods/${state.modId}/snapshots${query}`),
-      fetchJson(`/mods/${state.modId}/versions`),
-    ]);
-    state.summary = summary;
-    state.snapshots = snapshots;
-    state.versions = versions;
-
-    renderStats();
-    renderChart();
-    renderSnapshotTable();
-    renderVersionTable();
-  } catch (err) {
-    showError(`データの取得に失敗しました(${err.message})`);
-  } finally {
-    el.content.classList.remove("is-loading");
-  }
-}
-
-// 取得ジョブの実行記録(mod に依存しないので起動時に 1 回だけ)
-async function loadFetchLogs() {
-  try {
-    const logs = await fetchJson("/fetch/logs?limit=10");
-    renderLogTable(logs);
-  } catch (err) {
-    clearTable(el.logTableBody);
-    appendEmptyRow(el.logTableBody, 3, `取得できませんでした(${err.message})`);
+// 増減の値を表示用の要素に入れる(増えていれば緑にする)
+function setDeltaValue(element, delta) {
+  element.classList.remove("is-up");
+  element.textContent = formatSigned(delta);
+  if (delta > 0) {
+    element.classList.add("is-up");
   }
 }
 
 // ============================================================
-// 描画
+// グラフ共通の設定
+// 3 つのグラフはどれも「横軸が時間」なので、軸の設定をここにまとめている
 // ============================================================
 
-// サマリータイル
-function renderStats() {
-  const latest = state.summary.latest_snapshot;
+// 横軸(時間)の設定
+function timeAxisOptions() {
+  return {
+    type: "time",
+    min: state.rangeFrom === null ? undefined : state.rangeFrom,  // 全期間ならデータに任せる
+    time: {
+      unit: "day",
+      displayFormats: { day: "M/d" },
+      tooltipFormat: "yyyy/MM/dd HH:mm",
+    },
+    grid: { display: false },
+    ticks: { color: cssVar("--text-muted"), maxRotation: 0 },
+    border: { color: cssVar("--grid") },
+  };
+}
 
-  // 総ダウンロード数(最新スナップショット)
-  el.statDownloads.textContent = latest ? formatNumber(latest.download_count) : "–";
-  el.statCapturedAt.textContent = latest ? `${formatDateTime(latest.captured_at)} 時点` : "まだ取得データがありません";
+// 縦軸(件数)の設定
+function countAxisOptions() {
+  return {
+    grid: { color: cssVar("--grid") },
+    ticks: {
+      color: cssVar("--text-muted"),
+      precision: 0,  // ダウンロード数は整数なので 476.8 のような目盛りを出さない
+      callback: (value) => formatNumber(value),
+    },
+    border: { display: false },
+  };
+}
 
-  // 期間内の増加 = 期間内の最後のスナップショット − 最初のスナップショット
-  el.statDelta.classList.remove("is-up");
-  if (state.snapshots.length >= 2) {
-    const first = state.snapshots[0];
-    const last = state.snapshots[state.snapshots.length - 1];
-    const delta = last.download_count - first.download_count;
-    el.statDelta.textContent = formatSigned(delta);
-    if (delta > 0) {
-      el.statDelta.classList.add("is-up");
+// 1 本の折れ線データセットを作る(合計の推移と mod 別の推移で共通)
+function lineDataset(label, points) {
+  return {
+    label: label,
+    data: points,
+    borderColor: cssVar("--series-1"),
+    backgroundColor: cssVar("--series-1-wash"),
+    fill: true,
+    borderWidth: 2,
+    pointRadius: 4,
+    pointHoverRadius: 6,
+    pointBackgroundColor: cssVar("--series-1"),
+    pointBorderColor: cssVar("--surface"),
+    pointBorderWidth: 2,
+    tension: 0,
+  };
+}
+
+// Chart.js プラグイン: マウス位置に縦の細い線(クロスヘア)を出す
+const crosshairPlugin = {
+  id: "crosshair",
+  afterDraw(chartInstance) {
+    const active = chartInstance.tooltip && chartInstance.tooltip.getActiveElements();
+    if (!active || active.length === 0) {
+      return;
     }
-    el.statDeltaSub.textContent = `${formatDate(first.captured_at)} 〜 ${formatDate(last.captured_at)}`;
-  } else {
-    el.statDelta.textContent = "–";
-    el.statDeltaSub.textContent = "比較には 2 回以上の取得が必要です";
-  }
-
-  // 評価
-  el.statRating.textContent = latest ? formatNumber(latest.rating_score) : "–";
-
-  // 最新バージョン
-  const version = state.summary.latest_version;
-  el.statVersion.textContent = version ? `v${version.version_number}` : "–";
-  el.statVersionSub.textContent = version
-    ? `${formatDate(version.release_date)} 公開 / 全 ${state.summary.version_count} バージョン`
-    : "";
-}
+    const x = active[0].element.x;
+    const yScale = chartInstance.scales.y;
+    const ctx = chartInstance.ctx;
+    ctx.save();
+    ctx.strokeStyle = cssVar("--text-muted");
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, yScale.top);
+    ctx.lineTo(x, yScale.bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
 
 // Chart.js プラグイン: バージョン公開日に縦線と小さなラベルを描く
 // (Chart.js の描画のあとに呼ばれる afterDraw で、キャンバスに直接線を引いている)
@@ -278,57 +298,232 @@ const versionMarkerPlugin = {
   },
 };
 
-// Chart.js プラグイン: マウス位置に縦の細い線(クロスヘア)を出す
-const crosshairPlugin = {
-  id: "crosshair",
-  afterDraw(chartInstance) {
-    const active = chartInstance.tooltip && chartInstance.tooltip.getActiveElements();
-    if (!active || active.length === 0) {
-      return;
-    }
-    const x = active[0].element.x;
-    const yScale = chartInstance.scales.y;
-    const ctx = chartInstance.ctx;
-    ctx.save();
-    ctx.strokeStyle = cssVar("--text-muted");
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x, yScale.top);
-    ctx.lineTo(x, yScale.bottom);
-    ctx.stroke();
-    ctx.restore();
-  },
-};
+// ============================================================
+// データ取得
+// ============================================================
 
-// 折れ線グラフ
-function renderChart() {
+// 期間ボタンの状態から state.rangeFrom を計算する
+function updateRangeFrom() {
+  if (state.rangeDays === null) {
+    state.rangeFrom = null;
+    return;
+  }
+  const from = new Date();
+  from.setUTCDate(from.getUTCDate() - state.rangeDays);
+  state.rangeFrom = from.getTime();
+}
+
+// 全 mod の一覧を取り直して描画する
+async function loadOverview() {
+  try {
+    state.overview = await fetchJson(`/overview${rangeQuery()}`);
+    renderOverviewTiles();
+    renderTotalsChart();
+    renderOverviewTable();
+  } catch (err) {
+    showError(`全 mod の一覧の取得に失敗しました(${err.message})`);
+  }
+}
+
+// 選択中の mod と期間に合わせて 4 つの API を同時に呼び、state を更新して描画する
+async function loadMod() {
+  if (state.modId === null) {
+    return;
+  }
+
+  el.content.classList.add("is-loading");
+  clearError();
+
+  try {
+    const query = rangeQuery();
+    const [summary, snapshots, versions, versionSnapshots] = await Promise.all([
+      fetchJson(`/mods/${state.modId}/summary`),
+      fetchJson(`/mods/${state.modId}/snapshots${query}`),
+      fetchJson(`/mods/${state.modId}/versions`),
+      fetchJson(`/mods/${state.modId}/version-snapshots${query}`),
+    ]);
+    state.summary = summary;
+    state.snapshots = snapshots;
+    state.versions = versions;
+    state.versionSnapshots = versionSnapshots;
+
+    renderDetailTitle();
+    renderStats();
+    renderDownloadsChart();
+    renderSnapshotTable();
+    renderVersionsChart();
+    renderVersionSnapshotTable();
+    renderVersionTable();
+    highlightSelectedOverviewRow();
+  } catch (err) {
+    showError(`データの取得に失敗しました(${err.message})`);
+  } finally {
+    el.content.classList.remove("is-loading");
+  }
+}
+
+// 取得ジョブの実行記録(mod に依存しないので起動時に 1 回だけ)
+async function loadFetchLogs() {
+  try {
+    const logs = await fetchJson("/fetch/logs?limit=10");
+    renderLogTable(logs);
+  } catch (err) {
+    clearTable(el.logTableBody);
+    appendEmptyRow(el.logTableBody, 3, `取得できませんでした(${err.message})`);
+  }
+}
+
+// mod を切り替える(セレクトボックスと一覧表の行クリックの両方から呼ばれる)
+function selectMod(modId) {
+  state.modId = modId;
+  el.modSelect.value = String(modId);
+  window.location.hash = `mod=${modId}`;
+  loadMod();
+}
+
+// ============================================================
+// 描画: 全 mod の一覧
+// ============================================================
+
+function renderOverviewTiles() {
+  const ov = state.overview;
+  el.ovTotal.textContent = formatNumber(ov.total_downloads);
+  el.ovTotalSub.textContent = ov.latest_captured_at ? `${formatDateTime(ov.latest_captured_at)} 時点` : "";
+  setDeltaValue(el.ovDelta, ov.total_delta);
+  el.ovDeltaSub.textContent = state.rangeFrom === null
+    ? "最初の取得からの増加"
+    : `${formatDate(new Date(state.rangeFrom).toISOString())} 以降の増加`;
+  el.ovModCount.textContent = formatNumber(ov.mod_count);
+}
+
+// 全 mod 合計の推移(取得回ごとの合計)
+function renderTotalsChart() {
+  const points = state.overview.totals.map((t) => ({
+    x: new Date(t.captured_at).getTime(),
+    y: t.download_count,
+  }));
+
+  if (charts.totals) {
+    charts.totals.destroy();
+  }
+
+  charts.totals = new Chart(el.totalsCanvas, {
+    type: "line",
+    data: { datasets: [lineDataset("合計ダウンロード数", points)] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          displayColors: false,
+          callbacks: {
+            title: (items) => formatDateTime(items[0].parsed.x),
+            label: (item) => `合計 ${formatNumber(item.parsed.y)} ダウンロード`,
+          },
+        },
+      },
+      scales: { x: timeAxisOptions(), y: countAxisOptions() },
+    },
+    plugins: [crosshairPlugin],
+  });
+}
+
+// mod ごとの一覧表(ダウンロード数の多い順。行クリックで詳細を切り替え)
+function renderOverviewTable() {
+  clearTable(el.overviewTableBody);
+  const mods = state.overview.mods;
+  if (mods.length === 0) {
+    appendEmptyRow(el.overviewTableBody, 6, "追跡中の mod がありません");
+    return;
+  }
+
+  for (const mod of mods) {
+    const tr = document.createElement("tr");
+    tr.dataset.modId = String(mod.mod_id);
+    tr.appendChild(makeCell(mod.name));
+    tr.appendChild(makeCell(formatNumber(mod.latest_download_count), "num"));
+    const deltaCell = makeCell(formatSigned(mod.delta), "num");
+    if (mod.delta > 0) {
+      deltaCell.classList.add("status-good");
+    }
+    tr.appendChild(deltaCell);
+    tr.appendChild(makeCell(formatNumber(mod.rating_score), "num"));
+    tr.appendChild(makeCell(mod.latest_version ? `v${mod.latest_version}` : "–"));
+    tr.appendChild(makeCell(mod.latest_release_date ? formatDate(mod.latest_release_date) : "–"));
+    tr.addEventListener("click", () => selectMod(mod.mod_id));
+    el.overviewTableBody.appendChild(tr);
+  }
+  highlightSelectedOverviewRow();
+}
+
+// 一覧表の中で、いま詳細に表示している mod の行に印を付ける
+function highlightSelectedOverviewRow() {
+  for (const tr of el.overviewTableBody.querySelectorAll("tr")) {
+    tr.classList.toggle("is-selected", tr.dataset.modId === String(state.modId));
+  }
+}
+
+// ============================================================
+// 描画: 選択中 mod の詳細
+// ============================================================
+
+function renderDetailTitle() {
+  const mod = state.summary.mod;
+  el.detailTitle.textContent = "";
+  el.detailTitle.appendChild(document.createTextNode(`${mod.name} の詳細`));
+  const sub = document.createElement("span");
+  sub.className = "section-title-sub";
+  sub.textContent = mod.external_id;
+  el.detailTitle.appendChild(sub);
+}
+
+// サマリータイル
+function renderStats() {
+  const latest = state.summary.latest_snapshot;
+
+  // 総ダウンロード数(最新スナップショット)
+  el.statDownloads.textContent = latest ? formatNumber(latest.download_count) : "–";
+  el.statCapturedAt.textContent = latest ? `${formatDateTime(latest.captured_at)} 時点` : "まだ取得データがありません";
+
+  // 期間内の増加 = 期間内の最後のスナップショット − 最初のスナップショット
+  if (state.snapshots.length >= 2) {
+    const first = state.snapshots[0];
+    const last = state.snapshots[state.snapshots.length - 1];
+    setDeltaValue(el.statDelta, last.download_count - first.download_count);
+    el.statDeltaSub.textContent = `${formatDate(first.captured_at)} 〜 ${formatDate(last.captured_at)}`;
+  } else {
+    setDeltaValue(el.statDelta, null);
+    el.statDeltaSub.textContent = "比較には 2 回以上の取得が必要です";
+  }
+
+  // 評価
+  el.statRating.textContent = latest ? formatNumber(latest.rating_score) : "–";
+
+  // 最新バージョン
+  const version = state.summary.latest_version;
+  el.statVersion.textContent = version ? `v${version.version_number}` : "–";
+  el.statVersionSub.textContent = version
+    ? `${formatDate(version.release_date)} 公開 / 全 ${state.summary.version_count} バージョン`
+    : "";
+}
+
+// ダウンロード数の推移(折れ線 + バージョン公開日の縦線)
+function renderDownloadsChart() {
   const points = state.snapshots.map((s) => ({
     x: new Date(s.captured_at).getTime(),
     y: s.download_count,
   }));
 
-  if (chart) {
-    chart.destroy();
+  if (charts.downloads) {
+    charts.downloads.destroy();
   }
 
-  chart = new Chart(el.chartCanvas, {
+  charts.downloads = new Chart(el.downloadsCanvas, {
     type: "line",
-    data: {
-      datasets: [{
-        label: "ダウンロード数",
-        data: points,
-        borderColor: cssVar("--series-1"),
-        backgroundColor: cssVar("--series-1-wash"),
-        fill: true,
-        borderWidth: 2,
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        pointBackgroundColor: cssVar("--series-1"),
-        pointBorderColor: cssVar("--surface"),
-        pointBorderWidth: 2,
-        tension: 0,
-      }],
-    },
+    data: { datasets: [lineDataset("ダウンロード数", points)] },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -344,29 +539,7 @@ function renderChart() {
           },
         },
       },
-      scales: {
-        x: {
-          type: "time",
-          min: state.rangeFrom === null ? undefined : state.rangeFrom,  // 全期間ならデータに任せる
-          time: {
-            unit: "day",
-            displayFormats: { day: "M/d" },
-            tooltipFormat: "yyyy/MM/dd HH:mm",
-          },
-          grid: { display: false },
-          ticks: { color: cssVar("--text-muted"), maxRotation: 0 },
-          border: { color: cssVar("--grid") },
-        },
-        y: {
-          grid: { color: cssVar("--grid") },
-          ticks: {
-            color: cssVar("--text-muted"),
-            precision: 0,  // ダウンロード数は整数なので 476.8 のような目盛りを出さない
-            callback: (value) => formatNumber(value),
-          },
-          border: { display: false },
-        },
-      },
+      scales: { x: timeAxisOptions(), y: countAxisOptions() },
     },
     plugins: [versionMarkerPlugin, crosshairPlugin],
   });
@@ -391,6 +564,151 @@ function renderSnapshotTable() {
     tr.appendChild(makeCell(previous ? formatSigned(current.download_count - previous.download_count) : "–", "num"));
     tr.appendChild(makeCell(formatNumber(current.rating_score), "num"));
     el.snapshotTableBody.appendChild(tr);
+  }
+}
+
+// ---- バージョン別の積み上げグラフ ----
+
+// version-snapshots の行(バージョン × 取得日時)を、グラフ用の系列に組み替える
+// 出力: {
+//   times:  取得日時(ミリ秒)の配列(古い順)
+//   series: [{ label, color, values: { [time]: download_count } }, ...]
+//           最新 VERSION_SERIES_LIMIT 個のバージョンが個別、残りは「その他」に合算
+//           配列の順序 = 積み上げの下から上(その他 → 古い → 新しい)
+// }
+function buildVersionSeries() {
+  const rows = state.versionSnapshots;
+
+  // バージョンを公開日の新しい順に並べる(同じ公開日なら version_number の文字列比較で新しいほうを後ろに)
+  const versionInfo = new Map();  // version_number → release_date
+  for (const row of rows) {
+    if (!versionInfo.has(row.version_number)) {
+      versionInfo.set(row.version_number, row.release_date);
+    }
+  }
+  const versionsNewestFirst = [...versionInfo.keys()].sort((a, b) => {
+    const dateDiff = new Date(versionInfo.get(b)) - new Date(versionInfo.get(a));
+    return dateDiff !== 0 ? dateDiff : b.localeCompare(a, undefined, { numeric: true });
+  });
+
+  const individual = versionsNewestFirst.slice(0, VERSION_SERIES_LIMIT);
+  const grouped = new Set(versionsNewestFirst.slice(VERSION_SERIES_LIMIT));
+
+  // 取得日時の一覧(古い順)
+  const timeSet = new Set();
+  for (const row of rows) {
+    timeSet.add(new Date(row.captured_at).getTime());
+  }
+  const times = [...timeSet].sort((a, b) => a - b);
+
+  // 系列ごとの値。色は新しいバージョンから順に series-1, series-2 ... を割り当てる
+  const colorVars = ["--series-1", "--series-2", "--series-3", "--series-4"];
+  const series = individual.map((versionNumber, index) => ({
+    label: `v${versionNumber}`,
+    color: cssVar(colorVars[index]),
+    values: {},
+  }));
+  const otherSeries = { label: `その他(${grouped.size} バージョン)`, color: cssVar("--series-other"), values: {} };
+
+  for (const row of rows) {
+    const time = new Date(row.captured_at).getTime();
+    const index = individual.indexOf(row.version_number);
+    const target = index >= 0 ? series[index] : otherSeries;
+    target.values[time] = (target.values[time] || 0) + row.download_count;
+  }
+
+  // 積み上げの順序: 下から「その他」→ 古いバージョン → 最新バージョン
+  const ordered = [...series].reverse();
+  if (grouped.size > 0) {
+    ordered.unshift(otherSeries);
+  }
+  return { times, series: ordered };
+}
+
+function renderVersionsChart() {
+  const { times, series } = buildVersionSeries();
+
+  if (charts.versions) {
+    charts.versions.destroy();
+  }
+
+  const datasets = series.map((s, index) => ({
+    label: s.label,
+    data: times.map((time) => ({ x: time, y: s.values[time] || 0 })),
+    backgroundColor: s.color,
+    borderColor: cssVar("--surface"),  // 系列の境目を背景色の線で区切る(塗り同士が接しないようにする)
+    borderWidth: 2,
+    pointRadius: 0,
+    pointHoverRadius: 5,
+    pointHoverBackgroundColor: s.color,
+    pointHoverBorderColor: cssVar("--surface"),
+    fill: index === 0 ? "origin" : "-1",  // 一番下は 0 から、それ以外は 1 つ下の系列まで塗る
+    tension: 0,
+  }));
+
+  charts.versions = new Chart(el.versionsCanvas, {
+    type: "line",
+    data: { datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          align: "start",
+          labels: { color: cssVar("--text-secondary"), boxWidth: 12, boxHeight: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => formatDateTime(items[0].parsed.x),
+            label: (item) => `${item.dataset.label}: ${formatNumber(item.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        x: timeAxisOptions(),
+        y: { ...countAxisOptions(), stacked: true, beginAtZero: true },  // 積み上げは 0 から積む(下の系列が切れないように)
+      },
+    },
+    plugins: [crosshairPlugin],
+  });
+}
+
+// バージョン別の表(横に系列、縦に取得日時。新しい取得が上)
+function renderVersionSnapshotTable() {
+  const { times, series } = buildVersionSeries();
+  clearTable(el.versionSnapshotTableHead);
+  clearTable(el.versionSnapshotTableBody);
+
+  // 見出し行
+  const headRow = document.createElement("tr");
+  const firstHead = document.createElement("th");
+  firstHead.textContent = "取得日時";
+  headRow.appendChild(firstHead);
+  const columns = [...series].reverse();  // 表では新しいバージョンを左に
+  for (const s of columns) {
+    const th = document.createElement("th");
+    th.textContent = s.label;
+    th.className = "num";
+    headRow.appendChild(th);
+  }
+  el.versionSnapshotTableHead.appendChild(headRow);
+
+  if (times.length === 0) {
+    appendEmptyRow(el.versionSnapshotTableBody, columns.length + 1, "この期間のデータはありません");
+    return;
+  }
+
+  for (const time of [...times].reverse()) {
+    const tr = document.createElement("tr");
+    tr.appendChild(makeCell(formatDateTime(time)));
+    for (const s of columns) {
+      tr.appendChild(makeCell(formatNumber(s.values[time] || 0), "num"));
+    }
+    el.versionSnapshotTableBody.appendChild(tr);
   }
 }
 
@@ -435,6 +753,17 @@ function renderLogTable(logs) {
 // 起動処理とイベント
 // ============================================================
 
+// 全部のグラフを今の state で描き直す(ダークモード切り替え時に色を読み直すため)
+function rerenderAllCharts() {
+  if (state.overview) {
+    renderTotalsChart();
+  }
+  if (state.summary) {
+    renderDownloadsChart();
+    renderVersionsChart();
+  }
+}
+
 async function init() {
   // mod 一覧を取ってセレクトボックスに入れる
   try {
@@ -465,9 +794,7 @@ async function init() {
 
   // イベント登録
   el.modSelect.addEventListener("change", () => {
-    state.modId = Number(el.modSelect.value);
-    window.location.hash = `mod=${state.modId}`;
-    loadMod();
+    selectMod(Number(el.modSelect.value));
   });
 
   for (const button of el.rangeButtons) {
@@ -477,20 +804,19 @@ async function init() {
       }
       button.classList.add("is-selected");
       state.rangeDays = RANGE_PRESETS[button.dataset.days];
+      updateRangeFrom();
+      loadOverview();
       loadMod();
     });
   }
 
   // OS のダークモード切り替えに追従して色を読み直す
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (state.summary) {
-      renderChart();
-    }
-  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", rerenderAllCharts);
 
   // 最初の描画
+  updateRangeFrom();
   loadFetchLogs();
-  await loadMod();
+  await Promise.all([loadOverview(), loadMod()]);
 }
 
 init();

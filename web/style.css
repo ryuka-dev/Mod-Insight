@@ -15,8 +15,12 @@
   --text-muted: #898781;       /* 軸ラベルなど控えめな文字 */
   --grid: #e1e0d9;             /* グラフの目盛り線 */
   --border: rgba(11, 11, 11, 0.10);
-  --series-1: #2a78d6;         /* 折れ線の色(青) */
+  --series-1: #2a78d6;         /* 折れ線の色(青)。バージョン別グラフでは最新バージョン */
   --series-1-wash: rgba(42, 120, 214, 0.10);  /* 折れ線の下の薄い塗り */
+  --series-2: #eb6834;         /* バージョン別グラフ: 2 番目に新しいバージョン(橙) */
+  --series-3: #1baf7a;         /* 3 番目(青緑) */
+  --series-4: #eda100;         /* 4 番目(黄) */
+  --series-other: #b5b3ac;     /* それより古いバージョンをまとめた「その他」(灰) */
   --marker: #898781;           /* バージョン公開日の縦線 */
   --delta-up: #006300;         /* 増加を表す文字色 */
   --status-good: #0ca30c;
@@ -37,6 +41,10 @@
     --border: rgba(255, 255, 255, 0.10);
     --series-1: #3987e5;
     --series-1-wash: rgba(57, 135, 229, 0.12);
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-other: #5c5b57;
     --marker: #898781;
     --delta-up: #0ca30c;
     --selected-bg: #ffffff;
@@ -213,6 +221,49 @@ body {
   position: relative;
   height: 320px;
   max-width: 100%;
+}
+
+.chart-wrap-small {
+  height: 200px;
+}
+
+/* ---------- 全 mod の一覧 ---------- */
+.overview-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* 一覧表の行はクリックで詳細に切り替えられる */
+#overviewTable tbody tr {
+  cursor: pointer;
+}
+
+#overviewTable tbody tr:hover {
+  background: var(--grid);
+}
+
+#overviewTable tbody tr.is-selected {
+  background: var(--series-1-wash);
+}
+
+#overviewTable tbody tr.is-selected td:first-child {
+  font-weight: 600;
+}
+
+/* 詳細セクションの見出し(どの mod を見ているか) */
+.section-title {
+  margin: 24px 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.section-title .section-title-sub {
+  margin-left: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .two-columns {

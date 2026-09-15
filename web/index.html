@@ -39,6 +39,50 @@
   <p id="errorBox" class="error-box" hidden></p>
 
   <main id="content" class="content">
+    <!-- 全 mod の一覧(期間フィルターだけが効く。mod の選択とは無関係) -->
+    <section class="card" aria-label="全 mod の一覧">
+      <h2 class="card-title">全 mod の状況</h2>
+      <p class="card-note">Thunderstore で公開中の全 mod の合計。行をクリックすると下の詳細がその mod に切り替わります。</p>
+      <div class="overview-tiles">
+        <div class="stat-tile stat-tile-hero">
+          <span class="stat-label">合計ダウンロード数</span>
+          <span class="stat-value" id="ovTotal">–</span>
+          <span class="stat-sub" id="ovTotalSub"></span>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-label">期間内の増加(合計)</span>
+          <span class="stat-value" id="ovDelta">–</span>
+          <span class="stat-sub" id="ovDeltaSub"></span>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-label">追跡中の mod 数</span>
+          <span class="stat-value" id="ovModCount">–</span>
+          <span class="stat-sub">非推奨を除く</span>
+        </div>
+      </div>
+      <div class="chart-wrap chart-wrap-small">
+        <canvas id="totalsChart" role="img" aria-label="全 mod の合計ダウンロード数の折れ線グラフ"></canvas>
+      </div>
+      <div class="table-scroll">
+        <table id="overviewTable">
+          <thead>
+            <tr>
+              <th>Mod</th>
+              <th class="num">ダウンロード数</th>
+              <th class="num">期間内の増加</th>
+              <th class="num">評価</th>
+              <th>最新バージョン</th>
+              <th>公開日</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ここから下は選択中の 1 つの mod の詳細 -->
+    <h2 class="section-title" id="detailTitle">詳細</h2>
+
     <section class="stats" aria-label="サマリー">
       <div class="stat-tile stat-tile-hero">
         <span class="stat-label">総ダウンロード数</span>
@@ -75,6 +119,23 @@
             <thead>
               <tr><th>取得日時</th><th class="num">ダウンロード数</th><th class="num">前回比</th><th class="num">評価</th></tr>
             </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">バージョン別ダウンロード数</h2>
+      <p class="card-note">新しいバージョンが公開されたあと、利用者がどれくらい移行したかを見るための積み上げグラフ。最新 4 バージョンを個別に、それより古いものは「その他」にまとめています。</p>
+      <div class="chart-wrap">
+        <canvas id="versionsChart" role="img" aria-label="バージョン別ダウンロード数の積み上げグラフ"></canvas>
+      </div>
+      <details class="table-details">
+        <summary>データを表で見る</summary>
+        <div class="table-scroll">
+          <table id="versionSnapshotTable">
+            <thead></thead>
             <tbody></tbody>
           </table>
         </div>
