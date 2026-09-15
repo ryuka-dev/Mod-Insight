@@ -3,10 +3,10 @@
 //
 // Thunderstore からデータを取得して DB に保存する処理の本体。
 //
-// タイマー関数(functions/FetchThunderstoreDataTimer.js)から呼ばれるほか、
-// 将来の手動実行 API(POST /api/fetch/run)や、ローカルでの動作確認
-// (node -e "require('./src/fetchJob').runFetchJob(console)")からも
-// 同じ関数を呼び出せるように、トリガーとは別ファイルに分けている。
+// タイマー関数(functions/FetchThunderstoreDataTimer.js)と
+// 手動実行 API(functions/RunFetch.js、POST /api/fetch/run)の両方から呼ばれる。
+// ローカルでの動作確認(node -e "require('./src/fetchJob').runFetchJob(console)")も同じ関数で行える。
+// トリガーの種類に関係なく同じ処理を通すため、トリガーとは別ファイルに分けている。
 //
 // 処理の流れ:
 //   1. Thunderstore の v1 コミュニティ API から全パッケージ一覧を取得
@@ -14,6 +14,7 @@
 //   3. 各パッケージについて
 //        - versions[].downloads を合計して総ダウンロード数を計算
 //        - mods テーブルへ UPSERT(platform='thunderstore', external_id='ryuka_labs/{mod名}')
+//        - versions[] の各バージョンを mod_versions テーブルへ UPSERT(新しいものだけ増える)
 //        - snapshots テーブルへ 1 行 INSERT
 //      ※ 1 件で失敗しても他のパッケージの処理は続ける
 //   4. 最後に fetch_logs へ実行結果を 1 行 INSERT
@@ -68,7 +69,7 @@ function sumDownloads(pkg) {
   return total;
 }
 
-// 1 パッケージ分を DB に保存する(mods の UPSERT と snapshots の INSERT)
+// 1 パッケージ分を DB に保存する(mods の UPSERT、mod_versions の UPSERT、snapshots の INSERT)
 // 入力: パッケージオブジェクト、取得日時(ISO 文字列)
 // 出力: なし(失敗時は例外を投げる。呼び出し側で捕捉する)
 async function savePackage(pkg, capturedAt) {
@@ -81,6 +82,16 @@ async function savePackage(pkg, capturedAt) {
     is_deprecated: pkg.is_deprecated ? 1 : 0,
   };
   const modId = await db.upsertMod(modRecord);
+
+  // mod_versions テーブル用のデータ(バージョンごとに 1 行)
+  // date_created は "2025-03-01T12:34:56.789Z" のような ISO 文字列なので、先頭 10 文字 = 日付部分だけ使う
+  for (const version of pkg.versions) {
+    await db.upsertModVersion({
+      mod_id: modId,
+      version_number: version.version_number,
+      release_date: version.date_created ? version.date_created.slice(0, 10) : null,
+    });
+  }
 
   // snapshots テーブル用のデータ
   const snapshotRecord = {

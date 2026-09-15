@@ -13,10 +13,19 @@
 // (Azure Functions では同じプロセスが複数回の実行を処理するため、
 //  毎回接続し直すより速く、接続数の上限にも当たりにくい)
 //
-// 提供する関数:
-//   upsertMod(mod)            mods テーブルへ MERGE(あれば更新、なければ挿入)し、mod_id を返す
-//   insertSnapshot(snapshot)  snapshots テーブルへ 1 行 INSERT する
-//   insertFetchLog(log)       fetch_logs テーブルへ 1 行 INSERT する
+// 提供する関数(書き込み。取得ジョブから使う):
+//   upsertMod(mod)              mods テーブルへ MERGE(あれば更新、なければ挿入)し、mod_id を返す
+//   upsertModVersion(version)   mod_versions テーブルへ MERGE(同じ mod_id + version_number があれば何もしない)
+//   insertSnapshot(snapshot)    snapshots テーブルへ 1 行 INSERT する
+//   insertFetchLog(log)         fetch_logs テーブルへ 1 行 INSERT する
+//
+// 提供する関数(読み取り。HTTP API から使う):
+//   listMods()                  追跡中の mod 一覧
+//   getModById(modId)           mod 1 件(なければ null)
+//   getModSummary(modId)        最新スナップショットと最新バージョンをまとめたもの(なければ null)
+//   listSnapshots(modId, from, to)  期間指定つきの時系列データ(古い順)
+//   listModVersions(modId)      バージョン履歴(新しい順)
+//   listFetchLogs(limit)        取得ジョブの実行記録(新しい順)
 // ============================================================
 
 const sql = require("mssql");
@@ -166,4 +175,191 @@ async function insertFetchLog(log) {
     `);
 }
 
-module.exports = { upsertMod, insertSnapshot, insertFetchLog };
+// mod_versions テーブルへ挿入する(既にあれば何もしない)
+// 入力: { mod_id, version_number, release_date(YYYY-MM-DD 文字列 or null) }
+// 出力: なし
+// バージョンは一度公開されたら変わらないので、(mod_id, version_number) が一致する行が
+// 既にあれば更新もせずそのまま残す。取得ジョブは毎日全バージョンをこの関数に通すため、
+// 新しく公開されたバージョンだけが自然に追加されていく。
+async function upsertModVersion(version) {
+  const pool = await getPool();
+
+  await pool
+    .request()
+    .input("mod_id", sql.Int, version.mod_id)
+    .input("version_number", sql.NVarChar(50), version.version_number)
+    .input("release_date", sql.Date, version.release_date)
+    .query(`
+      MERGE mod_versions AS target
+      USING (SELECT @mod_id AS mod_id, @version_number AS version_number) AS source
+        ON target.mod_id = source.mod_id AND target.version_number = source.version_number
+      WHEN NOT MATCHED THEN
+        INSERT (mod_id, version_number, release_date)
+        VALUES (@mod_id, @version_number, @release_date);
+    `);
+}
+
+// ============================================================
+// ここから下は HTTP API 用の読み取り関数。
+// すべて SELECT だけで、テーブルを変更しない。
+// 返す行の列名はテーブルの列名そのまま(フロントエンドもこの名前で受け取る)。
+// ============================================================
+
+// 追跡中の mod 一覧を返す
+// 出力: [{ mod_id, name, author, platform, external_id, is_deprecated, created_at }, ...]
+//       name の五十音・アルファベット順
+async function listMods() {
+  const pool = await getPool();
+
+  const result = await pool.request().query(`
+    SELECT mod_id, name, author, platform, external_id, is_deprecated, created_at
+    FROM mods
+    ORDER BY name;
+  `);
+
+  return result.recordset;
+}
+
+// mod を 1 件取得する
+// 入力: modId(数値)
+// 出力: { mod_id, name, author, platform, external_id, is_deprecated, created_at } または null
+async function getModById(modId) {
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input("mod_id", sql.Int, modId)
+    .query(`
+      SELECT mod_id, name, author, platform, external_id, is_deprecated, created_at
+      FROM mods
+      WHERE mod_id = @mod_id;
+    `);
+
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+// mod の「今の状態」をまとめて返す(サマリー表示用)
+// 入力: modId(数値)
+// 出力: {
+//   mod:            getModById と同じ内容
+//   latest_snapshot: { captured_at, download_count, rating_score } または null(まだ 1 回も取得していない場合)
+//   latest_version:  { version_number, release_date } または null
+//   version_count:   登録済みバージョン数
+// } または null(mod 自体が存在しない場合)
+// 3 回に分けて SELECT している。1 本の SQL にまとめることもできるが、
+// 読みやすさを優先して「何を取っているか」が分かる形にしている。
+async function getModSummary(modId) {
+  const mod = await getModById(modId);
+  if (!mod) {
+    return null;
+  }
+
+  const pool = await getPool();
+
+  // 最新のスナップショット(captured_at が一番新しい 1 行)
+  const snapshotResult = await pool
+    .request()
+    .input("mod_id", sql.Int, modId)
+    .query(`
+      SELECT TOP 1 captured_at, download_count, rating_score
+      FROM snapshots
+      WHERE mod_id = @mod_id
+      ORDER BY captured_at DESC;
+    `);
+
+  // 最新バージョン(release_date が一番新しい 1 行)とバージョン数
+  const versionResult = await pool
+    .request()
+    .input("mod_id", sql.Int, modId)
+    .query(`
+      SELECT TOP 1 version_number, release_date
+      FROM mod_versions
+      WHERE mod_id = @mod_id
+      ORDER BY release_date DESC, version_id DESC;
+
+      SELECT COUNT(*) AS version_count
+      FROM mod_versions
+      WHERE mod_id = @mod_id;
+    `);
+
+  return {
+    mod: mod,
+    latest_snapshot: snapshotResult.recordset.length > 0 ? snapshotResult.recordset[0] : null,
+    latest_version: versionResult.recordsets[0].length > 0 ? versionResult.recordsets[0][0] : null,
+    version_count: versionResult.recordsets[1][0].version_count,
+  };
+}
+
+// 時系列データ(グラフ用)を古い順に返す
+// 入力: modId(数値)、from / to(Date または null。null なら期間の下限・上限なし)
+// 出力: [{ captured_at, download_count, rating_score }, ...]
+// raw_json は大きいので返さない。
+async function listSnapshots(modId, from, to) {
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input("mod_id", sql.Int, modId)
+    .input("from", sql.DateTime2, from)
+    .input("to", sql.DateTime2, to)
+    .query(`
+      SELECT captured_at, download_count, rating_score
+      FROM snapshots
+      WHERE mod_id = @mod_id
+        AND (@from IS NULL OR captured_at >= @from)
+        AND (@to IS NULL OR captured_at <= @to)
+      ORDER BY captured_at ASC;
+    `);
+
+  return result.recordset;
+}
+
+// バージョン履歴を新しい順に返す
+// 入力: modId(数値)
+// 出力: [{ version_id, version_number, release_date, changelog }, ...]
+async function listModVersions(modId) {
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input("mod_id", sql.Int, modId)
+    .query(`
+      SELECT version_id, version_number, release_date, changelog
+      FROM mod_versions
+      WHERE mod_id = @mod_id
+      ORDER BY release_date DESC, version_id DESC;
+    `);
+
+  return result.recordset;
+}
+
+// 取得ジョブの実行記録を新しい順に返す
+// 入力: limit(返す最大件数)
+// 出力: [{ log_id, run_at, status, error_message, records_fetched }, ...]
+async function listFetchLogs(limit) {
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input("limit", sql.Int, limit)
+    .query(`
+      SELECT TOP (@limit) log_id, run_at, status, error_message, records_fetched
+      FROM fetch_logs
+      ORDER BY run_at DESC;
+    `);
+
+  return result.recordset;
+}
+
+module.exports = {
+  upsertMod,
+  upsertModVersion,
+  insertSnapshot,
+  insertFetchLog,
+  listMods,
+  getModById,
+  getModSummary,
+  listSnapshots,
+  listModVersions,
+  listFetchLogs,
+};
