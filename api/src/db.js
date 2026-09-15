@@ -18,7 +18,7 @@
 //   upsertModVersion(version)   mod_versions テーブルへ MERGE(同じ mod_id + version_number があれば何もしない)し、version_id を返す
 //   insertVersionSnapshot(vs)   version_snapshots テーブルへ 1 行 INSERT する
 //   insertSnapshot(snapshot)    snapshots テーブルへ 1 行 INSERT する
-//   insertFetchLog(log)         fetch_logs テーブルへ 1 行 INSERT する
+//   insertFetchLog(log)         fetch_logs テーブルへ 1 行 INSERT する(プラットフォームごとに 1 行)
 //
 // 提供する関数(読み取り。HTTP API から使う):
 //   listMods()                  追跡中の mod 一覧
@@ -27,8 +27,8 @@
 //   listSnapshots(modId, from, to)  期間指定つきの時系列データ(古い順)
 //   listModVersions(modId)      バージョン履歴(新しい順)
 //   listVersionSnapshots(modId, from, to)  バージョンごとの時系列データ(古い順)
-//   getOverview(from)           全 mod の最新値と期間開始時点の値、合計の推移
-//   listFetchLogs(limit)        取得ジョブの実行記録(新しい順)
+//   getOverview(from, platform) 全 mod の最新値と期間開始時点の値、合計の推移(platform で絞り込める)
+//   listFetchLogs(limit)        取得ジョブの実行記録(新しい順。プラットフォームごとに 1 行)
 // ============================================================
 
 const sql = require("mssql");
@@ -159,8 +159,9 @@ async function insertSnapshot(snapshot) {
 }
 
 // fetch_logs テーブルへ 1 行挿入する
-// 入力: { run_at(ISO 文字列), status, error_message, records_fetched }
+// 入力: { run_at(ISO 文字列), platform, status, error_message, records_fetched }
 // 出力: なし
+// 1 回の取得ジョブでプラットフォームごとに 1 行書く(run_at は同じ値、platform が違う)。
 // 失敗時は例外を投げるが、呼び出し側(fetchJob.js の writeFetchLog)が捕捉するため
 // ジョブ全体が止まることはない。
 async function insertFetchLog(log) {
@@ -169,12 +170,13 @@ async function insertFetchLog(log) {
   await pool
     .request()
     .input("run_at", sql.DateTime2, new Date(log.run_at))
+    .input("platform", sql.NVarChar(20), log.platform)
     .input("status", sql.NVarChar(20), log.status)
     .input("error_message", sql.NVarChar(sql.MAX), log.error_message)
     .input("records_fetched", sql.Int, log.records_fetched)
     .query(`
-      INSERT INTO fetch_logs (run_at, status, error_message, records_fetched)
-      VALUES (@run_at, @status, @error_message, @records_fetched);
+      INSERT INTO fetch_logs (run_at, platform, status, error_message, records_fetched)
+      VALUES (@run_at, @platform, @status, @error_message, @records_fetched);
     `);
 }
 
@@ -388,8 +390,9 @@ async function listVersionSnapshots(modId, from, to) {
 
 // 全 mod の一覧画面用のデータをまとめて返す
 // 入力: from(Date または null。期間の開始。null なら「最初の取得」から)
+//       platform(文字列または null。'thunderstore' / 'nexusmods' で絞り込む。null なら全プラットフォーム)
 // 出力: {
-//   mods:   [{ mod_id, name, captured_at, latest_download_count, rating_score,
+//   mods:   [{ mod_id, name, platform, captured_at, latest_download_count, rating_score,
 //              start_download_count, latest_version, latest_release_date }, ...]  ※ 最新ダウンロード数の多い順
 //   totals: [{ captured_at, download_count, mod_count }, ...]  ※ 取得回ごとの全 mod 合計(古い順)
 // }
@@ -398,12 +401,16 @@ async function listVersionSnapshots(modId, from, to) {
 // ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY captured_at DESC) は
 // 「mod ごとに captured_at の新しい順で 1, 2, 3... と番号を振る」という意味で、
 // 番号が 1 の行だけ残せば「mod ごとに一番新しい 1 行」になる。
-async function getOverview(from) {
+// 合計の推移(2 つ目の SELECT)も platform で絞るため mods と JOIN している。
+// 取得ジョブは全プラットフォームに同じ captured_at を入れるので、絞らない場合は
+// 両方のプラットフォームを足した合計になる。
+async function getOverview(from, platform) {
   const pool = await getPool();
 
   const result = await pool
     .request()
     .input("from", sql.DateTime2, from)
+    .input("platform", sql.NVarChar(20), platform)
     .query(`
       WITH latest AS (
         SELECT mod_id, captured_at, download_count, rating_score,
@@ -421,7 +428,7 @@ async function getOverview(from) {
                ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY release_date DESC, version_id DESC) AS rn
         FROM mod_versions
       )
-      SELECT m.mod_id, m.name,
+      SELECT m.mod_id, m.name, m.platform,
              l.captured_at, l.download_count AS latest_download_count, l.rating_score,
              sp.download_count AS start_download_count,
              lv.version_number AS latest_version, lv.release_date AS latest_release_date
@@ -430,13 +437,16 @@ async function getOverview(from) {
       LEFT JOIN start_point sp ON sp.mod_id = m.mod_id AND sp.rn = 1
       LEFT JOIN latest_version lv ON lv.mod_id = m.mod_id AND lv.rn = 1
       WHERE m.is_deprecated = 0
+        AND (@platform IS NULL OR m.platform = @platform)
       ORDER BY l.download_count DESC, m.name ASC;
 
-      SELECT captured_at, SUM(download_count) AS download_count, COUNT(*) AS mod_count
-      FROM snapshots
-      WHERE (@from IS NULL OR captured_at >= @from)
-      GROUP BY captured_at
-      ORDER BY captured_at ASC;
+      SELECT s.captured_at, SUM(s.download_count) AS download_count, COUNT(*) AS mod_count
+      FROM snapshots s
+      INNER JOIN mods m ON m.mod_id = s.mod_id
+      WHERE (@from IS NULL OR s.captured_at >= @from)
+        AND (@platform IS NULL OR m.platform = @platform)
+      GROUP BY s.captured_at
+      ORDER BY s.captured_at ASC;
     `);
 
   return {
@@ -447,7 +457,7 @@ async function getOverview(from) {
 
 // 取得ジョブの実行記録を新しい順に返す
 // 入力: limit(返す最大件数)
-// 出力: [{ log_id, run_at, status, error_message, records_fetched }, ...]
+// 出力: [{ log_id, run_at, platform, status, error_message, records_fetched }, ...]
 async function listFetchLogs(limit) {
   const pool = await getPool();
 
@@ -455,9 +465,9 @@ async function listFetchLogs(limit) {
     .request()
     .input("limit", sql.Int, limit)
     .query(`
-      SELECT TOP (@limit) log_id, run_at, status, error_message, records_fetched
+      SELECT TOP (@limit) log_id, run_at, platform, status, error_message, records_fetched
       FROM fetch_logs
-      ORDER BY run_at DESC;
+      ORDER BY run_at DESC, platform ASC;
     `);
 
   return result.recordset;

@@ -10,7 +10,7 @@
   <!--
     画面の構成(上から順に):
       1. ヘッダー        タイトルと一言説明
-      2. フィルター行    どの mod を見るか、どの期間を見るか。ここで選んだ条件が下の全部に効く
+      2. フィルター行    どのプラットフォームか、どの mod を見るか、どの期間を見るか。ここで選んだ条件が下の全部に効く
       3. サマリータイル  今の数字(総ダウンロード数、期間内の増加、評価、最新バージョンなど)
       4. 折れ線グラフ    ダウンロード数の推移。縦線はバージョン公開日
       5. 表             バージョン履歴と取得ジョブの実行記録
@@ -19,10 +19,15 @@
 
   <header class="page-header">
     <h1>Mod Insight</h1>
-    <p class="subtitle">Thunderstore で公開中の mod のダウンロード数を毎日記録し、推移を可視化するダッシュボード</p>
+    <p class="subtitle">Thunderstore と Nexus Mods で公開中の mod のダウンロード数を毎日記録し、推移を可視化するダッシュボード</p>
   </header>
 
   <section class="filters" aria-label="表示条件">
+    <div class="filter-item platform-buttons" role="group" aria-label="プラットフォーム">
+      <span class="filter-label">配布サイト</span>
+      <button type="button" data-platform="thunderstore" class="is-selected">Thunderstore</button>
+      <button type="button" data-platform="nexusmods">Nexus Mods</button>
+    </div>
     <label class="filter-item">
       <span class="filter-label">Mod</span>
       <select id="modSelect" aria-label="表示する mod"></select>
@@ -39,10 +44,10 @@
   <p id="errorBox" class="error-box" hidden></p>
 
   <main id="content" class="content">
-    <!-- 全 mod の一覧(期間フィルターだけが効く。mod の選択とは無関係) -->
+    <!-- 全 mod の一覧(プラットフォームと期間フィルターが効く。mod の選択とは無関係) -->
     <section class="card" aria-label="全 mod の一覧">
       <h2 class="card-title">全 mod の状況</h2>
-      <p class="card-note">Thunderstore で公開中の全 mod の合計。行をクリックすると下の詳細がその mod に切り替わります。</p>
+      <p class="card-note"><span id="ovPlatformName">Thunderstore</span> で公開中の全 mod の合計。行をクリックすると下の詳細がその mod に切り替わります。</p>
       <div class="overview-tiles">
         <div class="stat-tile stat-tile-hero">
           <span class="stat-label">合計ダウンロード数</span>
@@ -70,7 +75,7 @@
               <th>Mod</th>
               <th class="num">ダウンロード数</th>
               <th class="num">期間内の増加</th>
-              <th class="num">評価</th>
+              <th class="num" id="ovRatingHead">評価</th>
               <th>最新バージョン</th>
               <th>公開日</th>
             </tr>
@@ -97,7 +102,7 @@
       <div class="stat-tile">
         <span class="stat-label">評価スコア</span>
         <span class="stat-value" id="statRating">–</span>
-        <span class="stat-sub">Thunderstore の rating_score</span>
+        <span class="stat-sub" id="statRatingSub">Thunderstore の rating_score</span>
       </div>
       <div class="stat-tile">
         <span class="stat-label">最新バージョン</span>
@@ -108,7 +113,7 @@
 
     <section class="card">
       <h2 class="card-title">ダウンロード数の推移</h2>
-      <p class="card-note">縦線はバージョンの公開日。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。</p>
+      <p class="card-note" id="downloadsNote">縦線はバージョンの公開日。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。</p>
       <div class="chart-wrap">
         <canvas id="downloadsChart" role="img" aria-label="ダウンロード数の折れ線グラフ"></canvas>
       </div>
@@ -117,7 +122,7 @@
         <div class="table-scroll">
           <table id="snapshotTable">
             <thead>
-              <tr><th>取得日時</th><th class="num">ダウンロード数</th><th class="num">前回比</th><th class="num">評価</th></tr>
+              <tr><th>取得日時</th><th class="num">ダウンロード数</th><th class="num">前回比</th><th class="num" id="snapshotRatingHead">評価</th></tr>
             </thead>
             <tbody></tbody>
           </table>
@@ -156,11 +161,11 @@
       </div>
       <div class="card">
         <h2 class="card-title">取得ジョブの実行記録</h2>
-        <p class="card-note">毎日 0:00(日本時間)に自動実行。直近 10 件を表示。</p>
+        <p class="card-note">毎日 0:00(日本時間)に自動実行。配布サイトごとに 1 行。直近 10 件を表示。</p>
         <div class="table-scroll">
           <table id="logTable">
             <thead>
-              <tr><th>実行日時</th><th>結果</th><th class="num">件数</th></tr>
+              <tr><th>実行日時</th><th>配布サイト</th><th>結果</th><th class="num">件数</th></tr>
             </thead>
             <tbody></tbody>
           </table>
@@ -170,7 +175,7 @@
   </main>
 
   <footer class="page-footer">
-    <p>データ取得元: Thunderstore 公開 API(sulfur コミュニティ)。バックエンド: Azure Functions + Azure SQL Database。</p>
+    <p>データ取得元: Thunderstore 公開 API(sulfur コミュニティ)と Nexus Mods GraphQL API。バックエンド: Azure Functions + Azure SQL Database。</p>
   </footer>
 
   <!-- グラフ描画ライブラリ(Chart.js)と、時間軸を扱うための日付アダプター -->

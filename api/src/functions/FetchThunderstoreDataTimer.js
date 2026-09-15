@@ -1,9 +1,13 @@
 // ============================================================
 // FetchThunderstoreDataTimer.js
 //
-// Thunderstore のデータを定期的に取得するタイマー関数。
+// 各プラットフォーム(Thunderstore、Nexus Mods)のデータを定期的に取得するタイマー関数。
 // このファイルは「いつ動かすか」を登録するだけで、
 // 実際の処理は fetchJob.js の runFetchJob に任せている。
+//
+// 関数名は Thunderstore だけを取得していた頃のもの。Application Insights のアラート
+// (docs/monitoring.md)がこの名前で実行を探しているため、Nexus Mods を追加したあとも
+// 名前は変えていない(変えるならアラートの条件も同時に直す)。
 //
 // スケジュール(NCRONTAB 形式、左から 秒 分 時 日 月 曜日):
 //   "0 0 15 * * *" = 毎日 15:00 UTC(= 日本時間 0:00)に 1 回実行

@@ -118,7 +118,8 @@ body {
   font: inherit;
 }
 
-.range-buttons button {
+.range-buttons button,
+.platform-buttons button {
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -128,11 +129,13 @@ body {
   cursor: pointer;
 }
 
-.range-buttons button:hover {
+.range-buttons button:hover,
+.platform-buttons button:hover {
   background: var(--grid);
 }
 
-.range-buttons button.is-selected {
+.range-buttons button.is-selected,
+.platform-buttons button.is-selected {
   background: var(--selected-bg);
   color: var(--selected-text);
   border-color: var(--selected-bg);

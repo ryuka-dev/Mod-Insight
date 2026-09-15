@@ -21,13 +21,13 @@ Mod Insight のバックエンド(Azure Functions)は Application Insights に�
 | テーブル | 内容 | 例 |
 |---|---|---|
 | `requests` | 関数の実行 1 回につき 1 行。関数名、成功/失敗、所要時間 | `GetOverview` が 533 ms で成功 |
-| `traces` | ホストのログと関数内の `context.log` | `取得ジョブ終了: status=success, 保存件数=24, 所要時間=1902ms` |
+| `traces` | ホストのログと関数内の `context.log` | `取得ジョブ終了: platform=thunderstore, status=success, 保存件数=24, 所要時間=1902ms`(プラットフォームごとに 1 行) |
 | `exceptions` | 捕捉されなかった例外 | |
 
 関数内のログはカテゴリ `Function.<関数名>.User` で記録される
 (`customDimensions.Category` で絞り込める)。
 
-**記録されていないもの**: Node.js の関数からの外部呼び出し(Azure SQL への問い合わせ、Thunderstore API への HTTP)は
+**記録されていないもの**: Node.js の関数からの外部呼び出し(Azure SQL への問い合わせ、Thunderstore / Nexus Mods API への HTTP)は
 `dependencies` テーブルに入らない。これを取るには関数内に Application Insights の Node.js SDK を組み込む必要があり、
 現段階では入れていない。所要時間は関数全体の値(`requests.duration`)で見る。
 

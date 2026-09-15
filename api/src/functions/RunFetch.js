@@ -11,7 +11,8 @@
 //   自前でキー比較を書かず、キーの発行・失効を Azure 側の管理画面に任せられる。
 //   ローカル実行(func start)ではキーなしで呼べる。
 //
-// 応答: 200 { run_at, status, error_message, records_fetched }(fetch_logs に書いた内容と同じ)
+// 応答: 200 { run_at, results: [{ platform, status, error_message, records_fetched }, ...] }
+//           (results の各要素は fetch_logs に書いた内容と同じ)
 //       401(キーなし・不一致。Azure 側が自動で返す)
 //       500 { error }(ジョブ自体が例外で落ちた場合)
 // ============================================================

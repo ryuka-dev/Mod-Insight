@@ -5,8 +5,8 @@
 // フレームワークは使わず、素の JavaScript だけで書いている。
 //
 // 流れ:
-//   1. 起動時に GET /api/mods で mod 一覧を取り、セレクトボックスに入れる
-//   2. 期間が変わるたびに GET /api/overview で全 mod の一覧を取り直す
+//   1. 起動時に GET /api/mods で mod 一覧を取り、選択中のプラットフォームのものをセレクトボックスに入れる
+//   2. プラットフォームか期間が変わるたびに GET /api/overview?platform= で全 mod の一覧を取り直す
 //   3. mod か期間が変わるたびに、その mod の
 //        GET /api/mods/{id}/summary            (今の数字)
 //        GET /api/mods/{id}/snapshots          (時系列。期間は ?from= で絞る)
@@ -27,9 +27,27 @@ const RANGE_PRESETS = { "7": 7, "30": 30, "90": 90, "all": null };
 // バージョン別グラフで個別に表示するバージョンの数(それより古いものは「その他」)
 const VERSION_SERIES_LIMIT = 4;
 
+// プラットフォームごとの表示文言。値は API の mods.platform と同じ文字列
+// rating は snapshots.rating_score の意味がプラットフォームで違うので、ラベルを切り替える
+const PLATFORM_LABELS = {
+  thunderstore: {
+    name: "Thunderstore",
+    rating: "評価",
+    ratingSub: "Thunderstore の rating_score",
+    downloadsNote: "縦線はバージョンの公開日。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。",
+  },
+  nexusmods: {
+    name: "Nexus Mods",
+    rating: "推薦数",
+    ratingSub: "Nexus Mods の endorsements",
+    downloadsNote: "縦線はバージョン(ファイル)の公開日。Nexus Mods はファイル単位でダウンロード数を数えるため、同じバージョン番号のファイルは合算しています。",
+  },
+};
+
 // 今画面に表示している状態。描画関数はすべてここを見る
 const state = {
-  mods: [],              // mod 一覧
+  platform: "thunderstore",  // 選択中のプラットフォーム(PLATFORM_LABELS のキー)
+  mods: [],              // mod 一覧(全プラットフォーム)
   modId: null,           // 選択中の mod_id
   rangeDays: 30,         // 選択中の期間(日数)。null なら全期間
   rangeFrom: null,       // 選択中の期間の開始時刻(ミリ秒)。全期間なら null。loadMod / loadOverview が設定する
@@ -50,6 +68,7 @@ const charts = {
 // ---- 画面の要素をまとめて取得 ----
 const el = {
   modSelect: document.getElementById("modSelect"),
+  platformButtons: document.querySelectorAll(".platform-buttons button"),
   rangeButtons: document.querySelectorAll(".range-buttons button"),
   errorBox: document.getElementById("errorBox"),
   content: document.getElementById("content"),
@@ -59,6 +78,8 @@ const el = {
   ovDelta: document.getElementById("ovDelta"),
   ovDeltaSub: document.getElementById("ovDeltaSub"),
   ovModCount: document.getElementById("ovModCount"),
+  ovPlatformName: document.getElementById("ovPlatformName"),
+  ovRatingHead: document.getElementById("ovRatingHead"),
   totalsCanvas: document.getElementById("totalsChart"),
   overviewTableBody: document.querySelector("#overviewTable tbody"),
   // 選択中 mod の詳細
@@ -68,9 +89,12 @@ const el = {
   statDelta: document.getElementById("statDelta"),
   statDeltaSub: document.getElementById("statDeltaSub"),
   statRating: document.getElementById("statRating"),
+  statRatingSub: document.getElementById("statRatingSub"),
   statVersion: document.getElementById("statVersion"),
   statVersionSub: document.getElementById("statVersionSub"),
+  downloadsNote: document.getElementById("downloadsNote"),
   downloadsCanvas: document.getElementById("downloadsChart"),
+  snapshotRatingHead: document.getElementById("snapshotRatingHead"),
   snapshotTableBody: document.querySelector("#snapshotTable tbody"),
   versionsCanvas: document.getElementById("versionsChart"),
   versionSnapshotTableHead: document.querySelector("#versionSnapshotTable thead"),
@@ -143,6 +167,21 @@ function rangeQuery() {
     return "";
   }
   return `?from=${encodeURIComponent(new Date(state.rangeFrom).toISOString())}`;
+}
+
+// overview API 用のクエリ文字列(プラットフォーム + 期間)
+function overviewQuery() {
+  const params = new URLSearchParams();
+  params.set("platform", state.platform);
+  if (state.rangeFrom !== null) {
+    params.set("from", new Date(state.rangeFrom).toISOString());
+  }
+  return `?${params.toString()}`;
+}
+
+// 選択中のプラットフォームの表示文言
+function platformLabels() {
+  return PLATFORM_LABELS[state.platform];
 }
 
 // エラー表示の出し入れ
@@ -316,7 +355,7 @@ function updateRangeFrom() {
 // 全 mod の一覧を取り直して描画する
 async function loadOverview() {
   try {
-    state.overview = await fetchJson(`/overview${rangeQuery()}`);
+    state.overview = await fetchJson(`/overview${overviewQuery()}`);
     renderOverviewTiles();
     renderTotalsChart();
     renderOverviewTable();
@@ -362,14 +401,14 @@ async function loadMod() {
   }
 }
 
-// 取得ジョブの実行記録(mod に依存しないので起動時に 1 回だけ)
+// 取得ジョブの実行記録(mod に依存しないので起動時に 1 回だけ。全プラットフォーム分をまとめて表示)
 async function loadFetchLogs() {
   try {
     const logs = await fetchJson("/fetch/logs?limit=10");
     renderLogTable(logs);
   } catch (err) {
     clearTable(el.logTableBody);
-    appendEmptyRow(el.logTableBody, 3, `取得できませんでした(${err.message})`);
+    appendEmptyRow(el.logTableBody, 4, `取得できませんでした(${err.message})`);
   }
 }
 
@@ -379,6 +418,49 @@ function selectMod(modId) {
   el.modSelect.value = String(modId);
   window.location.hash = `mod=${modId}`;
   loadMod();
+}
+
+// セレクトボックスの中身を、選択中のプラットフォームの mod だけに入れ替える
+function fillModSelect() {
+  while (el.modSelect.firstChild) {
+    el.modSelect.removeChild(el.modSelect.firstChild);
+  }
+  for (const mod of state.mods) {
+    if (mod.platform !== state.platform) {
+      continue;
+    }
+    const option = document.createElement("option");
+    option.value = String(mod.mod_id);
+    option.textContent = mod.name;
+    el.modSelect.appendChild(option);
+  }
+}
+
+// プラットフォームを切り替える(ボタンから呼ばれる。起動時は init が直接 state を設定する)
+// 一覧・セレクトボックス・文言を切り替え、そのプラットフォームの先頭の mod を選び直す
+function selectPlatform(platform) {
+  state.platform = platform;
+  for (const button of el.platformButtons) {
+    button.classList.toggle("is-selected", button.dataset.platform === platform);
+  }
+  renderPlatformLabels();
+  fillModSelect();
+  loadOverview();
+
+  const firstMod = state.mods.find((m) => m.platform === platform);
+  if (firstMod) {
+    selectMod(firstMod.mod_id);
+  }
+}
+
+// プラットフォームによって意味が変わる見出し・注記を書き換える
+function renderPlatformLabels() {
+  const labels = platformLabels();
+  el.ovPlatformName.textContent = labels.name;
+  el.ovRatingHead.textContent = labels.rating;
+  el.statRatingSub.textContent = labels.ratingSub;
+  el.snapshotRatingHead.textContent = labels.rating;
+  el.downloadsNote.textContent = labels.downloadsNote;
 }
 
 // ============================================================
@@ -731,12 +813,15 @@ function renderVersionTable() {
 function renderLogTable(logs) {
   clearTable(el.logTableBody);
   if (logs.length === 0) {
-    appendEmptyRow(el.logTableBody, 3, "実行記録はまだありません");
+    appendEmptyRow(el.logTableBody, 4, "実行記録はまだありません");
     return;
   }
   for (const log of logs) {
     const tr = document.createElement("tr");
     tr.appendChild(makeCell(formatDateTime(log.run_at)));
+    // platform 列がない古い記録は Thunderstore だけを取得していた頃のもの
+    const platformLabel = PLATFORM_LABELS[log.platform];
+    tr.appendChild(makeCell(platformLabel ? platformLabel.name : (log.platform || "Thunderstore")));
     // 結果は色だけでなく記号 + 文字で示す
     const isSuccess = log.status === "success";
     const statusCell = makeCell(isSuccess ? "✓ 成功" : "✕ 失敗", isSuccess ? "status-good" : "status-failed");
@@ -778,24 +863,34 @@ async function init() {
     return;
   }
 
-  for (const mod of state.mods) {
-    const option = document.createElement("option");
-    option.value = String(mod.mod_id);
-    option.textContent = mod.name;
-    el.modSelect.appendChild(option);
-  }
-
-  // URL の #mod=12 で初期選択を指定できる(なければ先頭の mod)
+  // URL の #mod=12 で初期選択を指定できる(なければ Thunderstore の先頭の mod)。
+  // 指定された mod のプラットフォームを初期プラットフォームにする
   const hashMatch = window.location.hash.match(/^#mod=(\d+)$/);
   const requestedId = hashMatch ? Number(hashMatch[1]) : null;
-  const initialMod = state.mods.find((m) => m.mod_id === requestedId) || state.mods[0];
+  const initialMod = state.mods.find((m) => m.mod_id === requestedId)
+    || state.mods.find((m) => m.platform === state.platform)
+    || state.mods[0];
+  state.platform = PLATFORM_LABELS[initialMod.platform] ? initialMod.platform : "thunderstore";
   state.modId = initialMod.mod_id;
+  for (const button of el.platformButtons) {
+    button.classList.toggle("is-selected", button.dataset.platform === state.platform);
+  }
+  renderPlatformLabels();
+  fillModSelect();
   el.modSelect.value = String(state.modId);
 
   // イベント登録
   el.modSelect.addEventListener("change", () => {
     selectMod(Number(el.modSelect.value));
   });
+
+  for (const button of el.platformButtons) {
+    button.addEventListener("click", () => {
+      if (button.dataset.platform !== state.platform) {
+        selectPlatform(button.dataset.platform);
+      }
+    });
+  }
 
   for (const button of el.rangeButtons) {
     button.addEventListener("click", () => {

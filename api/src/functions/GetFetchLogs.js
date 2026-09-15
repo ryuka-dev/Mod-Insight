@@ -3,11 +3,12 @@
 //
 // GET /api/fetch/logs?limit=N
 // 取得ジョブの実行記録を新しい順に返す(監視・デモ用)。
+// 1 回の実行につきプラットフォームごとに 1 行ある(run_at が同じで platform が違う)。
 //
 // クエリパラメータ:
 //   limit  返す最大件数。省略時 30、最大 200。
 //
-// 応答: 200 [{ log_id, run_at, status, error_message, records_fetched }, ...]
+// 応答: 200 [{ log_id, run_at, platform, status, error_message, records_fetched }, ...]
 //       400 { error }(limit が 1〜200 の整数でない)
 //       500 { error }
 // ============================================================
