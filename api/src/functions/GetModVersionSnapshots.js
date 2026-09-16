@@ -7,6 +7,7 @@
 // 積み上げグラフで見るために使う。
 //
 // クエリパラメータは GetModSnapshots と同じ(from / to、どちらも省略可)。
+// キャッシュの使い方も同じ(mods/{modId}/version-snapshots.json を読んで JS 側で絞る)。
 //
 // 応答: 200 [{ version_number, release_date, captured_at, download_count }, ...]
 //       400 { error }(modId が数値でない、from / to が日付として読めない)
@@ -16,7 +17,8 @@
 
 const { app } = require("@azure/functions");
 const db = require("../db");
-const { parseModId, parseDateParam, errorResponse } = require("../httpUtil");
+const cache = require("../cache");
+const { parseModId, parseDateParam, filterByCapturedAt, dataSourceHeaders, errorResponse } = require("../httpUtil");
 
 app.http("GetModVersionSnapshots", {
   methods: ["GET"],
@@ -37,13 +39,25 @@ app.http("GetModVersionSnapshots", {
       return errorResponse(400, "from は to より前の日時にしてください");
     }
 
+    const cached = await cache.readForMod(modId, "version-snapshots", context);
+    if (cached.status === "not_found") {
+      return errorResponse(404, "指定された mod は存在しません");
+    }
+    if (cached.status === "hit") {
+      return {
+        status: 200,
+        headers: dataSourceHeaders("cache", cached.entry.run_at),
+        jsonBody: filterByCapturedAt(cached.entry.data, from.value, to.value),
+      };
+    }
+
     try {
       const mod = await db.getModById(modId);
       if (mod === null) {
         return errorResponse(404, "指定された mod は存在しません");
       }
       const rows = await db.listVersionSnapshots(modId, from.value, to.value);
-      return { status: 200, jsonBody: rows };
+      return { status: 200, headers: dataSourceHeaders("db"), jsonBody: rows };
     } catch (err) {
       context.error(`mod ${modId} のバージョン別スナップショット取得に失敗しました:`, err);
       return errorResponse(500, "バージョン別スナップショットの取得に失敗しました");

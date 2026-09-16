@@ -28,6 +28,7 @@
 //   listModVersions(modId)      バージョン履歴(新しい順)
 //   listVersionSnapshots(modId, from, to)  バージョンごとの時系列データ(古い順)
 //   getOverview(from, platform) 全 mod の最新値と期間開始時点の値、合計の推移(platform で絞り込める)
+//   listSnapshotHistory()       全 mod のダウンロード数の履歴(一覧画面のキャッシュ用)
 //   listFetchLogs(limit)        取得ジョブの実行記録(新しい順。プラットフォームごとに 1 行)
 // ============================================================
 
@@ -455,6 +456,25 @@ async function getOverview(from, platform) {
   };
 }
 
+// 全 mod のダウンロード数の履歴を返す(一覧画面のキャッシュを作るため)
+// 出力: [{ mod_id, platform, captured_at, download_count }, ...]  ※ mod_id 順、同じ mod の中は古い順
+// getOverview は from / platform を SQL の中で絞り込むが、キャッシュ(cache.js)は
+// 「全期間・全プラットフォーム」の履歴を 1 つ置いておき、絞り込みは読む側の JS で行う。
+// そのための材料を取る関数。getOverview の合計の推移と同じく is_deprecated では絞らない
+// (絞り込みは読む側で getOverview と同じ条件で行う)。
+async function listSnapshotHistory() {
+  const pool = await getPool();
+
+  const result = await pool.request().query(`
+    SELECT s.mod_id, m.platform, s.captured_at, s.download_count
+    FROM snapshots s
+    INNER JOIN mods m ON m.mod_id = s.mod_id
+    ORDER BY s.mod_id ASC, s.captured_at ASC;
+  `);
+
+  return result.recordset;
+}
+
 // 取得ジョブの実行記録を新しい順に返す
 // 入力: limit(返す最大件数)
 // 出力: [{ log_id, run_at, platform, status, error_message, records_fetched }, ...]
@@ -486,5 +506,6 @@ module.exports = {
   listModVersions,
   listVersionSnapshots,
   getOverview,
+  listSnapshotHistory,
   listFetchLogs,
 };

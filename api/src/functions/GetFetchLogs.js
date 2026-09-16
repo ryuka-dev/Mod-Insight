@@ -5,6 +5,9 @@
 // 取得ジョブの実行記録を新しい順に返す(監視・デモ用)。
 // 1 回の実行につきプラットフォームごとに 1 行ある(run_at が同じで platform が違う)。
 //
+// まず Blob キャッシュ(fetch-logs.json、新しい順に最大 200 件)を読んで先頭 limit 件を返し、
+// 無ければ DB に問い合わせる。
+//
 // クエリパラメータ:
 //   limit  返す最大件数。省略時 30、最大 200。
 //
@@ -15,10 +18,11 @@
 
 const { app } = require("@azure/functions");
 const db = require("../db");
-const { errorResponse } = require("../httpUtil");
+const cache = require("../cache");
+const { dataSourceHeaders, errorResponse } = require("../httpUtil");
 
 const DEFAULT_LIMIT = 30;
-const MAX_LIMIT = 200;
+const MAX_LIMIT = cache.FETCH_LOGS_CACHE_LIMIT;  // キャッシュに入れている件数より多くは返せない
 
 app.http("GetFetchLogs", {
   methods: ["GET"],
@@ -34,9 +38,14 @@ app.http("GetFetchLogs", {
       limit = Number(rawLimit);
     }
 
+    const cached = await cache.read("fetch-logs.json", context);
+    if (cached) {
+      return { status: 200, headers: dataSourceHeaders("cache", cached.run_at), jsonBody: cached.data.slice(0, limit) };
+    }
+
     try {
       const logs = await db.listFetchLogs(limit);
-      return { status: 200, jsonBody: logs };
+      return { status: 200, headers: dataSourceHeaders("db"), jsonBody: logs };
     } catch (err) {
       context.error("実行記録の取得に失敗しました:", err);
       return errorResponse(500, "実行記録の取得に失敗しました");

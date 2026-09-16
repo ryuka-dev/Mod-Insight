@@ -32,6 +32,8 @@
 //   3. そのプラットフォームの結果を fetch_logs へ 1 行 INSERT
 // 全プラットフォームの snapshots に同じ run_at を入れるので、
 // 「同じ回の取得」としてプラットフォーム横断で合計できる。
+// 全プラットフォームが終わったら、GET API 用の Blob キャッシュ(cache.js)を作り直す。
+// キャッシュの失敗はログに出すだけで、results(= fetch_logs の内容)には影響しない。
 //
 // 入力: logger(context または console。log / error メソッドを持つもの)
 // 出力: { run_at, results: [{ platform, status, error_message, records_fetched }, ...] }
@@ -39,6 +41,7 @@
 // ============================================================
 
 const db = require("./db");
+const cache = require("./cache");
 const thunderstore = require("./platforms/thunderstore");
 const nexusmods = require("./platforms/nexusmods");
 
@@ -152,6 +155,9 @@ async function runFetchJob(logger) {
   for (const adapter of PLATFORM_ADAPTERS) {
     results.push(await runPlatform(adapter, runAt, logger));
   }
+
+  // 保存が終わった今は DB が起きているので、この場でキャッシュを作り直す(失敗しても例外は出ない)
+  await cache.rebuildAll(runAt, logger);
 
   return { run_at: runAt, results: results };
 }

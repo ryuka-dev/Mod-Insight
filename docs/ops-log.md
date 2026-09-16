@@ -204,3 +204,67 @@ API は Blob を返す。データは 1 日 1 回しか変わらないので、�
 - DB が起きるのは取得ジョブの時だけ(1 日 1 回、数分)になり、無料枠の消費も減る。
 - Blob を読めなかった時だけ DB に落ちる(fall back)ようにして、キャッシュが壊れても表示できなくならないようにする。
 - 実装と「対策後の数字」は、キャッシュを入れた後にこの項目の続きとして追記する。
+
+### 1.7 対策(2026-09-16 実施)
+
+読み取り経路を DB から切り離した。実装の詳細は README「読み取りの流れ」と `api/src/cache.js` の冒頭コメントにある。要点だけ書く。
+
+- 取得ジョブ(タイマー / `POST /api/fetch/run`)が保存を終えた直後に、GET API 7 本が返す JSON をすべて Blob Storage(コンテナー `api-cache`)に書き直す。この時 DB は起きているので追加の待ち時間は無い
+- GET API はまず Blob を読む。無い時・読めない時だけ従来どおり DB に問い合わせる。応答ヘッダー `x-data-source`(`cache` / `db`)と `x-data-run-at`(そのデータを作った取得ジョブの実行日時)で経路が分かる
+- `from` / `to` / `platform` は全期間の Blob を読んだ後に JS で絞る。期間ごとに Blob を分けない
+- 存在しない mod_id は `mods.json` で判定して 404 を返す(DB を起こさない)
+- Blob の書き込み失敗は取得ジョブの結果(`fetch_logs`)を変えない。API は DB に戻るだけ
+- 設定 `CACHE_STORAGE_CONNECTION_STRING`(Function App と同じストレージアカウント)。未設定なら従来どおりの動き
+
+**検討して見送ったこと: 取得ジョブの後に DB を手動で一時停止する。**
+管理 API(`POST .../databases/{db}/pause`)を呼ぶと `FeatureDisabledOnSelectedEdition` が返る。
+General Purpose のサーバーレスは自動一時停止のみで、手動の pause / resume は使えない(Azure CLI にも `az sql db pause` は無い。`az sql dw pause` はデータウェアハウス用)。
+活動ログに出る pause / resume はすべてプラットフォームが起こした操作。したがって DB の起動時間を縮める手段は「起こす回数を減らす」しかなく、それは上の対策で達成している。
+
+### 1.8 効果(2026-09-16 計測)
+
+**手順**
+
+1. DB が一時停止していることを確認する(`az sql db show` → `status = Paused`、`pausedDate = 2026-09-16T01:42:25Z`)
+2. ダッシュボードが起動時と mod 切り替え時に呼ぶ URL 13 本を、DB を起こさないまま順番に呼ぶ(`curl`、東京の学内ネットワークから。関数のコールドスタート込み)
+3. DB の状態をもう一度確認する
+
+**結果**
+
+| URL | HTTP | 所要時間 | 経路 |
+|---|---|---|---|
+| `/api/mods` | 200 | 0.34 s | cache |
+| `/api/overview?from=…` | 200 | 0.37 s | cache |
+| `/api/mods/1/summary` | 200 | 0.30 s | cache |
+| `/api/mods/1/snapshots?from=…` | 200 | 3.16 s | cache |
+| `/api/mods/1/versions` | 200 | 0.27 s | cache |
+| `/api/mods/1/version-snapshots?from=…` | 200 | 0.28 s | cache |
+| `/api/fetch/logs?limit=10` | 200 | 0.26 s | cache |
+| `/api/overview?platform=nexusmods&from=…` | 200 | 0.31 s | cache |
+| `/api/mods/25/summary` | 200 | 0.32 s | cache |
+| `/api/mods/25/snapshots?from=…` | 200 | 0.25 s | cache |
+| `/api/mods/25/versions` | 200 | 0.27 s | cache |
+| `/api/mods/25/version-snapshots?from=…` | 200 | 0.41 s | cache |
+| `/api/mods/999999/summary` | 404 | 0.29 s | (mods.json で判定) |
+
+- 13 本すべて `x-data-source: cache`、`x-data-run-at = 2026-09-16T01:25:39Z`(直前の手動実行の回)
+- 計測の前後で DB は `Paused` のまま、`pausedDate` も変わらず。**DB を一度も起こしていない**
+- 3.16 s の 1 本は Function App の新しいインスタンスが立ち上がった分と推測している(直後の同種の URL は 0.25 s)。DB は停止したままなので DB の待ちではない
+
+**対策前との比較(その日はじめてのアクセスの `GET /api/mods`)**
+
+| | 所要時間 | 備考 |
+|---|---|---|
+| 対策前 | 47.7 s / 52.8 s / 52.9 s(1.2 節)、52.9 s(2026-09-16 00:58 UTC、デプロイ前の最後の例) | DB の復帰待ち |
+| 対策後 | 0.34 s | DB は停止したまま |
+
+**取得ジョブ側の変化**
+
+- `POST /api/fetch/run` は 16.5 s(Application Insights の `requests`)。2 プラットフォームの取得・保存に加えてキャッシュの作り直し(Blob 203 個 = 50 mod × 4 + 3)を含む
+- DB を起こすのはこの取得ジョブだけになった(1 日 1 回)。1.5 節の試算では 1 回あたり 16〜60 分の起動なので、月 15,000〜51,000 vCore 秒。無料枠 100,000 の中に収まる
+
+**残っている課題**
+
+- 取得ジョブが DB には保存できたのに Blob の書き込みだけ失敗すると、キャッシュは前回のまま(古いデータ)になる。`fetch_logs` は success なので既存のアラートでは気づけない。ログ `キャッシュの更新に失敗しました` を条件にしたアラートを足すのが次の手
+- Function App のコールドスタート(数秒)は残る。DB の 50 秒とは桁が違うので今は対策しない
+- 無料枠の残量(`free_amount_remaining`)を監視するアラートが無い。開発で DB を長く起こした日に備えて追加したい

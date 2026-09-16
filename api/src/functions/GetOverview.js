@@ -4,6 +4,9 @@
 // GET /api/overview?from=YYYY-MM-DD&platform=thunderstore
 // 全 mod をまとめて見る一覧画面用のデータを 1 回の呼び出しで返す。
 // (mod ごとに summary を 24 回呼ぶのではなく、SQL 側で 1 回にまとめる)
+// まず Blob キャッシュ(overview.json = 全期間・全プラットフォームの材料)を読んで
+// cache.buildOverview で from / platform を絞り、無ければ DB(db.getOverview)に問い合わせる。
+// どちらも同じ { mods, totals } の形になるので、その後の合計の計算は共通。
 //
 // クエリパラメータ:
 //   from      期間の開始(省略可)。「期間内の増加」の起点になる
@@ -24,7 +27,8 @@
 
 const { app } = require("@azure/functions");
 const db = require("../db");
-const { parseDateParam, parsePlatformParam, errorResponse } = require("../httpUtil");
+const cache = require("../cache");
+const { parseDateParam, parsePlatformParam, dataSourceHeaders, errorResponse } = require("../httpUtil");
 
 app.http("GetOverview", {
   methods: ["GET"],
@@ -42,7 +46,16 @@ app.http("GetOverview", {
     }
 
     try {
-      const overview = await db.getOverview(from.value, platform.value);
+      let overview;
+      let headers;
+      const cached = await cache.read("overview.json", context);
+      if (cached) {
+        overview = cache.buildOverview(cached.data, from.value, platform.value);
+        headers = dataSourceHeaders("cache", cached.run_at);
+      } else {
+        overview = await db.getOverview(from.value, platform.value);
+        headers = dataSourceHeaders("db");
+      }
 
       // 合計値はここで計算する(SQL で書くこともできるが、JS のほうが読みやすい)
       let totalDownloads = 0;
@@ -66,6 +79,7 @@ app.http("GetOverview", {
 
       return {
         status: 200,
+        headers: headers,
         jsonBody: {
           total_downloads: totalDownloads,
           total_delta: totalDelta,
