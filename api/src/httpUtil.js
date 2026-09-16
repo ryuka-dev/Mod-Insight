@@ -2,7 +2,8 @@
 // httpUtil.js
 //
 // HTTP 関数(functions/Get*.js, RunFetch.js)で共通して使う小さな道具。
-// 「URL の {modId} を数値に直す」「from / to の日付を読む」「platform を読む」「エラー応答を同じ形で返す」の 4 つだけ。
+// 「URL の {modId} を数値に直す」「from / to の日付を読む」「platform を読む」「エラー応答を同じ形で返す」
+// 「時系列を from / to で絞る」「応答にデータの出どころを付ける」の 6 つだけ。
 //
 // エラー応答の形はすべて { "error": "説明文" } に統一する。
 // フロントエンドはこの形だけ見ればエラーの内容が分かる。
@@ -58,6 +59,32 @@ function parsePlatformParam(raw) {
   return { ok: true, value: raw };
 }
 
+// 時系列の配列を from / to で絞り込む(キャッシュから読んだ全期間のデータ用)
+// 入力: rows([{ captured_at, ... }, ...])、from / to(Date または null)
+// 出力: from <= captured_at <= to の行だけの新しい配列(順番はそのまま)
+// SQL 版(db.js の listSnapshots など)の WHERE 句と同じ条件。
+function filterByCapturedAt(rows, from, to) {
+  const fromMs = from ? from.getTime() : null;
+  const toMs = to ? to.getTime() : null;
+  return rows.filter((row) => {
+    const t = new Date(row.captured_at).getTime();
+    return (fromMs === null || t >= fromMs) && (toMs === null || t <= toMs);
+  });
+}
+
+// 応答ヘッダーで「データをどこから返したか」を示す(動作確認・計測用)
+// 入力: source("cache" または "db")、runAt(キャッシュの run_at。db の時は省略)
+// 出力: 応答の headers に入れるオブジェクト
+//   x-data-source: cache | db
+//   x-data-run-at: キャッシュを返した時だけ。そのデータを作った取得ジョブの実行日時
+function dataSourceHeaders(source, runAt) {
+  const headers = { "x-data-source": source };
+  if (runAt) {
+    headers["x-data-run-at"] = runAt;
+  }
+  return headers;
+}
+
 // エラー応答を作る
 // 入力: status(HTTP ステータスコード)、message(説明文)
 // 出力: Azure Functions にそのまま返せる応答オブジェクト
@@ -68,4 +95,4 @@ function errorResponse(status, message) {
   };
 }
 
-module.exports = { PLATFORMS, parseModId, parseDateParam, parsePlatformParam, errorResponse };
+module.exports = { PLATFORMS, parseModId, parseDateParam, parsePlatformParam, filterByCapturedAt, dataSourceHeaders, errorResponse };
