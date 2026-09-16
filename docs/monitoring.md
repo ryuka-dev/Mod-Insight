@@ -99,8 +99,48 @@ exceptions
 | `alert-fetch-job-missing` | 直近 48 時間に `FetchThunderstoreDataTimer` の成功した実行が 1 件もない | 1 時間ごと | 毎日 15:00 UTC の取得が動いていない(タイマーの停止、アプリの停止、実行エラー)ことを検知する。ログ検索アラートの窓は 24 時間か 48 時間しか選べず、24 時間ちょうどだと実行タイミングのわずかなずれで誤検知し得るため 48 時間にしている(検知は最大で 1 日遅れる) |
 | `alert-fetch-job-failed` | 直近 1 時間のログに `status=failed` を含む取得ジョブの終了ログがある | 1 時間ごと | 取得ジョブ自体は最後まで動いたが、API 取得か DB 保存に失敗した回を検知する(ジョブは例外を握りつぶして `fetch_logs` に記録する設計なので、`requests` の失敗では捕まらない) |
 | `alert-api-failures` | 5 分間に失敗したリクエストが 5 件を超える | 5 分ごと | REST API の障害(DB に接続できない等)を検知する |
+| `alert-cache-update-failed` | 直近 1 時間のログに `キャッシュの更新に失敗しました` がある | 1 時間ごと | 取得ジョブが DB には保存できたのに Blob キャッシュの作り直しに失敗した回を検知する。`fetch_logs` は success のままなので `alert-fetch-job-failed` では捕まらず、放置するとダッシュボードが前日のデータを出し続ける(`docs/ops-log.md` 1.8 節) |
+| `alert-sql-free-limit-low` | Azure SQL の無料枠の残量(`free_amount_remaining`)の 1 時間の最小値が 20,000 vCore 秒を下回る | 1 時間ごと | 無料枠(月 100,000 vCore 秒)を使い切ると `freeLimitExhaustionBehavior = AutoPause` により**その月の残りずっと DB が止まる**。開発で DB を長く起こした日が続くと現実に起こるため(2026-09-15 は 1 日で 22,000。`docs/ops-log.md` 1.5 節)、残り 20% で先に知らせる。対象リソースは Application Insights ではなく SQL Database 本体 |
 
 費用の目安: ログ検索アラートは 1 ルールあたり月 1 ドル未満、メトリックアラートは月 0.1 ドル程度。
+
+### アラートを作ったコマンド
+
+後から同じものを作り直せるように残しておく(`$SUB` はサブスクリプション ID、Git Bash では `MSYS_NO_PATHCONV=1` を付ける)。
+
+```
+DB="/subscriptions/$SUB/resourceGroups/rg-mod-insight/providers/Microsoft.Sql/servers/sql-mod-insight-ryuka/databases/sqldb-mod-insight"
+AI="/subscriptions/$SUB/resourceGroups/rg-mod-insight/providers/microsoft.insights/components/mod-insight-ryuka"
+AG="/subscriptions/$SUB/resourceGroups/rg-mod-insight/providers/microsoft.insights/actionGroups/ag-mod-insight-email"
+
+# 無料枠の残量(メトリックアラート。対象は SQL Database)
+az monitor metrics alert create -g rg-mod-insight -n alert-sql-free-limit-low --scopes "$DB" \
+  --condition "min free_amount_remaining < 20000" --window-size 1h --evaluation-frequency 1h \
+  --severity 1 --action "$AG"
+
+# キャッシュ更新失敗(ログ検索アラート。対象は Application Insights)
+az monitor scheduled-query create -g rg-mod-insight -n alert-cache-update-failed -l eastasia --scopes "$AI" \
+  --condition "count 'Failures' > 0" \
+  --condition-query "Failures=traces | where customDimensions.Category in ('Function.FetchThunderstoreDataTimer.User', 'Function.RunFetch.User') | where message contains 'キャッシュの更新に失敗'" \
+  --window-size 1h --evaluation-frequency 1h --severity 2 --action-groups "$AG"
+```
+
+### SQL Database 側のメトリック
+
+無料枠の消費は Application Insights ではなく SQL Database のメトリックで見る(Portal → SQL Database → メトリック、または下のコマンド)。
+
+| メトリック | 集計 | 意味 |
+|---|---|---|
+| `free_amount_consumed` | Maximum | 今月使った vCore 秒 |
+| `free_amount_remaining` | Minimum | 今月の残り vCore 秒(アラートの対象) |
+| `app_cpu_billed` | Total | 期間内に課金された vCore 秒。起きている間は約 1,700 / 時間 |
+
+```
+az monitor metrics list --resource "$DB" --metric free_amount_consumed free_amount_remaining \
+  --start-time 2026-09-01T00:00:00Z --end-time 2026-10-01T00:00:00Z --interval P1D --aggregation Maximum Minimum -o table
+```
+
+`cpu_percent` は一時停止中も 0.0 を返すので、停止しているかどうかの判断には使えない(`az sql db show` の `status` を見る)。
 
 ## 既知の制限
 
