@@ -126,6 +126,7 @@ flowchart LR
   end
 
   DB[(Azure SQL Database)]
+  Blob[(Blob Storage<br/>API 応答のキャッシュ)]
   Web[Azure Static Web Apps<br/>HTML + JS + Chart.js]
   AI[Application Insights<br/>アラート]
   User[閲覧者]
@@ -136,7 +137,9 @@ flowchart LR
   Adapters --> TS
   Adapters --> NX
   Job --> DB
-  Api --> DB
+  Job -.取得後に作り直す.-> Blob
+  Api --> Blob
+  Api -.キャッシュが無い時だけ.-> DB
   User --> Web
   Web --> Api
   Func -.実行記録・ログ.-> AI
@@ -147,6 +150,17 @@ flowchart LR
 2. 配布サイトごとのアダプター(`api/src/platforms/`)が API を呼び、応答を共通の形 `{ name, author, external_id, download_count, rating_score, raw_json, versions[] }` に直す
 3. `api/src/fetchJob.js` がその形だけを見て DB に保存する(配布サイトの項目名は知らない)
 4. 配布サイトごとに実行結果を `fetch_logs` に 1 行残す。1 つの mod で失敗しても他の mod の保存は続ける
+5. 最後に `api/src/cache.js` が GET API の応答をすべて Blob Storage に書き直す(下記「読み取りの流れ」)
+
+**読み取りの流れ**
+
+GET API はまず Blob Storage のキャッシュを返し、キャッシュが無い時だけ DB に問い合わせます。
+データは 1 日 1 回の取得ジョブでしか変わらないので、それ以外の時間に DB を使う理由がないためです。
+
+- Azure SQL の無料枠(サーバーレス)は使われない時間が続くと自動で一時停止し、次の接続に約 50 秒かかります。以前はその日はじめて開いた人がこの 50 秒を待っていました(調査記録: [docs/ops-log.md](docs/ops-log.md))
+- キャッシュは `{ run_at, generated_at, data }` の形で、`run_at`(取得ジョブの実行日時)が「どの回のデータか」を表します。応答ヘッダー `x-data-source`(`cache` / `db`)と `x-data-run-at` でどちらの経路で返したかが分かります
+- 期間(`from` / `to`)や配布サイト(`platform`)の絞り込みは、全期間のキャッシュを読んだ後に JS 側で行います。期間ごとに Blob を分けるより単純で、取得ジョブはフロントエンドがどの期間を使うかを知らなくてよいためです
+- キャッシュの書き込みに失敗しても取得ジョブの結果(`fetch_logs`)は変わらず、API は DB に戻るだけです
 
 配布サイトを増やすときは、共通の形を返すアダプターを 1 ファイル追加するだけで、保存処理と API は変更しません。
 
@@ -154,6 +168,7 @@ flowchart LR
 |---|---|---|
 | 取得ジョブ・API | Azure Functions(Node.js、プログラミングモデル v4、Flex Consumption) | 1 日 1 回のジョブと少量の API にサーバーを常時動かす必要がない。Static Web Apps に付属する Functions はタイマー起動に対応していないため、独立した Function App にしている |
 | データベース | Azure SQL Database(無料枠) | 「mod ↔ バージョン ↔ 時系列」の関係がはっきりしていて、集計を SQL の JOIN とウィンドウ関数で書けるため |
+| 読み取りキャッシュ | Blob Storage(Function App と同じストレージアカウント) | 応答は 1 日 1 回しか変わらないので、JSON をそのまま置いておけばよい。DB を一時停止のままにでき、無料枠の消費も抑えられる |
 | フロントエンド | 素の HTML / JavaScript + Chart.js、Azure Static Web Apps(無料枠) | 1 画面にグラフが数枚だけなので、ビルド工程が要らない構成にした |
 | 監視 | Application Insights + Azure Monitor アラート | 関数の実行記録が自動で集まり、「ジョブが動かなかった」「失敗した」をメールで通知できる |
 | 手動実行の保護 | Azure Functions の関数キー(`authLevel: "function"`) | キーの発行・無効化を Azure 側で管理でき、コードに秘密情報を持たなくてよい |
@@ -221,6 +236,7 @@ Mod-Insight/
     src/functions/             関数 1 つにつき 1 ファイル(HTTP API 8 本 + タイマー 1 本)
     src/platforms/             配布サイトごとのアダプター(API の応答 → 共通の形)
     src/fetchJob.js            取得ジョブ本体(タイマーと手動実行の両方から呼ぶ)
+    src/cache.js               GET API 応答の Blob Storage キャッシュ(読み・作り直し)
     src/db.js                  SQL をすべてここに集約
     src/httpUtil.js            パラメータの解釈とエラー応答の形
   web/                         ダッシュボード(index.html / app.js / style.css / config.js)
@@ -249,10 +265,14 @@ Mod-Insight/
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "node",
     "AzureWebJobsStorage": "",
-    "AZURE_SQL_CONNECTION_STRING": "<Azure SQL の接続文字列>"
+    "AZURE_SQL_CONNECTION_STRING": "<Azure SQL の接続文字列>",
+    "CACHE_STORAGE_CONNECTION_STRING": "<Blob Storage の接続文字列(省略可)>"
   }
 }
 ```
+
+`CACHE_STORAGE_CONNECTION_STRING` を省略するとキャッシュを使わず、GET API は毎回 DB に問い合わせます。
+`AzureWebJobsStorage` と同じアカウントを指してかまいませんが、設定名を分けているのは、ローカルから本物のストレージを使ってもタイマーの状態ファイルを共有しないためです。
 
 ```
 cd api
@@ -291,7 +311,7 @@ npx http-server web -p 8080
 az functionapp deployment source config-zip -g <リソースグループ> -n <Function App 名> --src api.zip --build-remote true
 ```
 
-Function App のアプリケーション設定に `AZURE_SQL_CONNECTION_STRING` を登録しておきます。
+Function App のアプリケーション設定に `AZURE_SQL_CONNECTION_STRING` と `CACHE_STORAGE_CONNECTION_STRING` を登録しておきます。
 Windows の `Compress-Archive` で作った zip はパス区切りが `\` になり Linux 上で展開できないため、`/` 区切りで zip を作ってください。
 
 ## 10. 既知の制約と今後
