@@ -245,7 +245,8 @@ Mod-Insight/
   sql/                         建表スクリプト(番号順に実行)
   scripts/                     単体で動かす補助スクリプト(API の確認、データの埋め戻し)
   docs/                        監視の説明、運用記録、README 用の画像
-  .github/workflows/           web/ を Static Web Apps に配置するワークフロー
+  api/test/                    ユニットテスト(node:test)
+  .github/workflows/           テスト実行と web/ の Static Web Apps への配置
 ```
 
 ## 9. ローカルでの実行とデプロイ
@@ -285,6 +286,18 @@ func start
 `http://localhost:7071/api/...` で API が動きます。
 HTTP 関数はストレージなしで動きますが、タイマー関数を動かすには `AzureWebJobsStorage` にストレージ(Azurite など)が必要です。
 取得ジョブだけを試す場合は `POST http://localhost:7071/api/fetch/run` を呼びます(ローカルではキー不要)。
+
+### テスト
+
+```
+cd api
+npm test
+```
+
+Node.js 標準の `node:test` を使っているので追加のパッケージは要りません。DB にも外部 API にもつながず、
+パラメータの解釈(`httpUtil.js`)、キャッシュの絞り込み(`cache.js`)、配布サイトの応答を共通の形に直す処理
+(`platforms/`、`fetch` を差し替えて固定の JSON を与える)を確かめます。
+Pull Request と `main` への push では GitHub Actions(`.github/workflows/test.yml`)が同じテストを実行します。
 
 データ元の API の応答だけを確認したいときは、DB なしで次のスクリプトを実行できます。
 
