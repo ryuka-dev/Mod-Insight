@@ -1,0 +1,53 @@
+# ============================================================
+# test.yml
+#
+# バックエンド(api/)のユニットテストを GitHub Actions で実行する。
+#
+# 動くタイミング:
+#   - Pull Request(api/ かこのファイルが変わった場合)
+#   - main ブランチへの push(同上)
+#   - GitHub の Actions 画面から手動実行したとき(workflow_dispatch)
+#
+# 仕組み:
+#   Node.js は Azure 上の Function App と同じ 24 を使う。
+#   テストは Node.js 標準の node:test なので、npm ci で本番の依存を入れるだけで動く。
+#   DB や外部 API にはつながない(つなぐ必要のあるテストは書かない方針)。
+#   デプロイはしない(バックエンドは zip deploy、フロントエンドは deploy-web.yml)。
+# ============================================================
+
+name: Test api
+
+on:
+  pull_request:
+    paths:
+      - "api/**"
+      - ".github/workflows/test.yml"
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - ".github/workflows/test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Node.js を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: 依存パッケージを入れる
+        run: npm ci
+
+      - name: テストを実行
+        run: npm test
