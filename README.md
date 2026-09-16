@@ -211,6 +211,8 @@ Application Insights に関数の実行記録とログが自動で集まりま�
 
 確認用のクエリ(KQL)と設定の詳細は [docs/monitoring.md](docs/monitoring.md) にまとめています。
 
+本番で起きた問題の調査記録(現象・調査手順・根因・決定)は [docs/ops-log.md](docs/ops-log.md) に残しています。
+
 ## 8. ディレクトリ構成
 
 ```
@@ -224,7 +226,7 @@ Mod-Insight/
   web/                         ダッシュボード(index.html / app.js / style.css / config.js)
   sql/                         建表スクリプト(番号順に実行)
   scripts/                     単体で動かす補助スクリプト(API の確認、データの埋め戻し)
-  docs/                        監視の説明、README 用の画像
+  docs/                        監視の説明、運用記録、README 用の画像
   .github/workflows/           web/ を Static Web Apps に配置するワークフロー
 ```
 
