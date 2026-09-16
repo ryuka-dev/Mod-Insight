@@ -216,13 +216,15 @@ $ curl "https://mod-insight-ryuka-hrhbbdauc0ezbfc7.eastasia-01.azurewebsites.net
 
 ## 7. 監視
 
-Application Insights に関数の実行記録とログが自動で集まります。次の 3 つのアラートをメール通知で設定しています。
+Application Insights に関数の実行記録とログが自動で集まります。次の 5 つのアラートをメール通知で設定しています。
 
 | アラート | 条件 |
 |---|---|
 | `alert-fetch-job-missing` | 直近 48 時間に定時の取得ジョブが 1 回も成功していない |
 | `alert-fetch-job-failed` | 取得ジョブの終了ログに `status=failed` がある(API 取得や DB 保存に失敗した回) |
 | `alert-api-failures` | 5 分間に失敗した HTTP リクエストが 5 件を超える |
+| `alert-cache-update-failed` | 取得ジョブが DB には保存できたのに Blob キャッシュの作り直しに失敗した |
+| `alert-sql-free-limit-low` | Azure SQL の無料枠の残りが 20,000 vCore 秒(20%)を下回った(使い切るとその月の残りは DB が止まる) |
 
 確認用のクエリ(KQL)と設定の詳細は [docs/monitoring.md](docs/monitoring.md) にまとめています。
 
