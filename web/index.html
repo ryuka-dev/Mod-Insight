@@ -85,6 +85,26 @@
       </div>
     </section>
 
+    <!-- 全 mod の日ごとの増加(プラットフォームと期間フィルターが効く) -->
+    <section class="card" aria-label="日ごとの増加">
+      <h2 class="card-title">日ごとの増加</h2>
+      <p class="card-note">全 mod で 1 日に増えたダウンロード数(日本時間の 0 時で区切る)。前日にも記録がある mod だけを足すので、新しい mod や配布サイトを追加した日に段差は出ません。線は直近 7 日の平均。CDN キャッシュの揺れでマイナスになる日もそのまま表示しています。</p>
+      <div class="chart-wrap chart-wrap-small">
+        <canvas id="dailyChart" role="img" aria-label="日ごとのダウンロード増加数の棒グラフと 7 日平均の折れ線"></canvas>
+      </div>
+      <details class="table-details">
+        <summary>データを表で見る</summary>
+        <div class="table-scroll">
+          <table id="dailyTable">
+            <thead>
+              <tr><th>日付</th><th class="num">増加</th><th class="num">7 日平均</th><th class="num">集計した mod 数</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
     <!-- ここから下は選択中の 1 つの mod の詳細 -->
     <h2 class="section-title" id="detailTitle">詳細</h2>
 
