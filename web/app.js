@@ -444,20 +444,32 @@ function fillModSelect() {
   }
 }
 
+// そのプラットフォームで最初に詳細を表示する mod(ダウンロード数が一番多いもの)の mod_id を返す
+// 一覧(overview)はダウンロード数の多い順なので、その中でプラットフォームが合う先頭を使う。
+// 一覧が取れなかった時は、名前順(mods API の順)の先頭で代用する
+function defaultModId(platform) {
+  const top = state.overview && state.overview.mods.find((m) => m.platform === platform);
+  if (top) {
+    return top.mod_id;
+  }
+  const first = state.mods.find((m) => m.platform === platform);
+  return first ? first.mod_id : null;
+}
+
 // プラットフォームを切り替える(ボタンから呼ばれる。起動時は init が直接 state を設定する)
-// 一覧・セレクトボックス・文言を切り替え、そのプラットフォームの先頭の mod を選び直す
-function selectPlatform(platform) {
+// 一覧・セレクトボックス・文言を切り替え、一覧を取り直してから、ダウンロード数が一番多い mod を選び直す
+async function selectPlatform(platform) {
   state.platform = platform;
   for (const button of el.platformButtons) {
     button.classList.toggle("is-selected", button.dataset.platform === platform);
   }
   renderPlatformLabels();
   fillModSelect();
-  loadOverview();
+  await loadOverview();
 
-  const firstMod = state.mods.find((m) => m.platform === platform);
-  if (firstMod) {
-    selectMod(firstMod.mod_id);
+  const modId = defaultModId(platform);
+  if (modId !== null) {
+    selectMod(modId);
   }
 }
 
@@ -979,21 +991,20 @@ async function init() {
     return;
   }
 
-  // URL の #mod=12 で初期選択を指定できる(なければ Thunderstore の先頭の mod)。
-  // 指定された mod のプラットフォームを初期プラットフォームにする
+  // URL の #mod=12 で最初に詳細を表示する mod を指定できる。
+  // 指定された mod のプラットフォームを初期プラットフォームにする(指定が無ければ Thunderstore)
   const hashMatch = window.location.hash.match(/^#mod=(\d+)$/);
   const requestedId = hashMatch ? Number(hashMatch[1]) : null;
-  const initialMod = state.mods.find((m) => m.mod_id === requestedId)
+  const requestedMod = state.mods.find((m) => m.mod_id === requestedId) || null;
+  const platformMod = requestedMod
     || state.mods.find((m) => m.platform === state.platform)
     || state.mods[0];
-  state.platform = PLATFORM_LABELS[initialMod.platform] ? initialMod.platform : "thunderstore";
-  state.modId = initialMod.mod_id;
+  state.platform = PLATFORM_LABELS[platformMod.platform] ? platformMod.platform : "thunderstore";
   for (const button of el.platformButtons) {
     button.classList.toggle("is-selected", button.dataset.platform === state.platform);
   }
   renderPlatformLabels();
   fillModSelect();
-  el.modSelect.value = String(state.modId);
 
   // イベント登録
   el.modSelect.addEventListener("change", () => {
@@ -1027,7 +1038,20 @@ async function init() {
   // 最初の描画
   updateRangeFrom();
   loadFetchLogs();
-  await Promise.all([loadOverview(), loadMod()]);
+  if (requestedMod) {
+    // URL で指定された mod は、一覧を待たずに同時に取りに行く
+    state.modId = requestedMod.mod_id;
+    el.modSelect.value = String(state.modId);
+    await Promise.all([loadOverview(), loadMod()]);
+  } else {
+    // 指定が無ければ、一覧(ダウンロード数の多い順)を取ってから、その先頭の mod を表示する
+    await loadOverview();
+    state.modId = defaultModId(state.platform);
+    if (state.modId !== null) {
+      el.modSelect.value = String(state.modId);
+    }
+    await loadMod();
+  }
 }
 
 init();
