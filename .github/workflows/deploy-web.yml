@@ -13,7 +13,7 @@
 #   公式アクション static-web-apps-deploy がそれを使って web/ の中身をアップロードする。
 #   web/ はビルド不要の静的ファイルなので skip_app_build: true にしている。
 #
-# バックエンド(api/)はこのワークフローでは配置しない(別途 zip deploy で行う)。
+# バックエンド(api/)はこのワークフローでは配置しない(deploy-api.yml)。
 # ============================================================
 
 name: Deploy web to Azure Static Web Apps
