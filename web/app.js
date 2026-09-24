@@ -93,6 +93,7 @@ const el = {
   statCapturedAt: document.getElementById("statCapturedAt"),
   statDelta: document.getElementById("statDelta"),
   statDeltaSub: document.getElementById("statDeltaSub"),
+  statRatingHead: document.getElementById("statRatingHead"),
   statRating: document.getElementById("statRating"),
   statRatingSub: document.getElementById("statRatingSub"),
   statVersion: document.getElementById("statVersion"),
@@ -465,6 +466,7 @@ function renderPlatformLabels() {
   const labels = platformLabels();
   el.ovPlatformName.textContent = labels.name;
   el.ovRatingHead.textContent = labels.rating;
+  el.statRatingHead.textContent = labels.rating;
   el.statRatingSub.textContent = labels.ratingSub;
   el.snapshotRatingHead.textContent = labels.rating;
   el.downloadsNote.textContent = labels.downloadsNote;
