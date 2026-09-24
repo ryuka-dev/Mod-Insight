@@ -522,7 +522,7 @@ function renderTotalsChart() {
   });
 }
 
-// mod ごとの一覧表(ダウンロード数の多い順。行クリックで詳細を切り替え)
+// mod ごとの一覧表(ダウンロード数の多い順。行クリックで詳細を切り替えて、詳細までスクロールする)
 function renderOverviewTable() {
   clearTable(el.overviewTableBody);
   const mods = state.overview.mods;
@@ -544,7 +544,11 @@ function renderOverviewTable() {
     tr.appendChild(makeCell(formatNumber(mod.rating_score), "num"));
     tr.appendChild(makeCell(mod.latest_version ? `v${mod.latest_version}` : "–"));
     tr.appendChild(makeCell(mod.latest_release_date ? formatDate(mod.latest_release_date) : "–"));
-    tr.addEventListener("click", () => selectMod(mod.mod_id));
+    tr.addEventListener("click", () => {
+      selectMod(mod.mod_id);
+      // 詳細は表よりずっと下にあるので、切り替わったことが見えるようにそこまで動かす
+      el.detailTitle.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     el.overviewTableBody.appendChild(tr);
   }
   highlightSelectedOverviewRow();
