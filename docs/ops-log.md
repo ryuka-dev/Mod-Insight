@@ -268,3 +268,83 @@ General Purpose のサーバーレスは自動一時停止のみで、手動の 
 - 取得ジョブが DB には保存できたのに Blob の書き込みだけ失敗すると、キャッシュは前回のまま(古いデータ)になる。`fetch_logs` は success なので既存のアラートでは気づけない。ログ `キャッシュの更新に失敗しました` を条件にしたアラートを足すのが次の手
 - Function App のコールドスタート(数秒)は残る。DB の 50 秒とは桁が違うので今は対策しない
 - 無料枠の残量(`free_amount_remaining`)を監視するアラートが無い。開発で DB を長く起こした日に備えて追加したい
+
+---
+
+## 2. 費用のほとんどが監視(ログ検索アラート)だった(2026-09-24)
+
+### 2.1 現象
+
+Azure Portal の費用表示で、サービス別の最大が Azure Monitor(約 63 円)だった。
+SQL Database と Functions はどちらも 0 円で、アプリ本体ではなく監視に費用がかかっていた。
+
+### 2.2 調査
+
+Cost Management の Query API で、2026-09-01〜09-23 の実績を「サービス / メーター / リソース」単位で集計した。
+
+```
+az rest --method post --body @query.json \
+  --url "https://management.azure.com/subscriptions/$SUB/providers/Microsoft.CostManagement/query?api-version=2023-11-01"
+```
+
+(`query.json` は `type: ActualCost`、期間指定、`grouping` に `ServiceName` / `Meter` / `ResourceId`)
+
+| リソース | メーター | 費用 |
+|---|---|---:|
+| `alert-fetch-job-missing` | Alerts System Log Monitored at 15 Minute Frequency | 22.06 円 |
+| `alert-fetch-job-failed` | 同上 | 22.06 円 |
+| `alert-cache-update-failed`(1 日遅れて作成) | 同上 | 19.17 円 |
+| ストレージアカウント | Hot Read Operations ほか | 5.33 円 |
+| Log Analytics | Analytics Logs Data Ingestion | 0.47 円 |
+| SQL Database / Functions / メトリックアラート 2 本 | (無料枠) | 0 円 |
+
+日別に見ると、Azure Monitor は 3 本そろった 09-16 以降、毎日 7〜7.7 円で一定だった。
+
+### 2.3 原因
+
+ログ検索アラートは、発火したかどうかに関係なく「ルールの本数 × 時間」で課金される。1 本あたり 1 日約 2.5 円(月約 75 円)。
+3 本で月約 225 円になり、このシステムの費用のほとんどを占めていた。
+
+- 3 本とも確認間隔は 1 時間だが、メーター名は「15 Minute Frequency」。15 分以上の間隔は同じ料金区分なので、**間隔を延ばしても安くならない**
+- メトリックアラート(`alert-api-failures`、`alert-sql-free-limit-low`)は課金されていない
+
+### 2.4 検討した案
+
+| 案 | 月の費用(アラート) | 監視の範囲 | 判断 |
+|---|---:|---|---|
+| そのまま | 約 225 円 | 変わらない | 学生向けの無料クレジット(年 100 ドル)で払える額だが、「通知を送る仕組み」だけに月の予算の約 2 割を使うことになる |
+| 3 本を 1 本のクエリにまとめる | 約 75 円 | 変わらない | **採用** |
+| キャッシュ更新失敗のアラートを消す | 約 150 円 | 狭くなる | キャッシュが壊れても API は DB に戻るので止まりはしないが、ダッシュボードが前日のデータを出し続けるのに気づけなくなる |
+| 確認間隔を延ばす | 変わらない | — | 料金区分が同じなので効果が無い |
+
+### 2.5 決定
+
+3 つの条件を 1 つの KQL にまとめた `alert-fetch-job-health` に置き換える。
+
+- クエリは問題 1 つにつき 1 行を返し、`problem` 列(`fetch_missing` / `fetch_failed` / `cache_update_failed`)を次元にする。
+  通知に問題の種類が出て、それぞれ独立に発火・自動解決するので、1 本にしても「何が起きたか」は分かる
+- 窓は `fetch_missing` に合わせて 48 時間。残り 2 つはクエリの中で直近 1 時間に絞る(1 回の失敗が 48 時間発火し続けないように)
+- 今後ログ検索アラートの条件を増やす時は、本数を増やさずこのクエリに `problem` を足す
+
+クエリと定義ファイルは [monitoring.md](monitoring.md) と `docs/alerts/alert-fetch-job-health.json` にある。
+
+### 2.6 対策と確認(2026-09-24 実施)
+
+1. **クエリの確認**(Application Insights に直接実行、窓 48 時間)
+   - 本番の条件: 0 行(健全な今は発火しない)
+   - `fetch_missing`: 関数名を存在しない名前に差し替えると `fetch_missing` の 1 行が返る
+   - `fetch_failed`: `status=failed` を `status=success` に、`ago(1h)` を `ago(48h)` に差し替えると、直近 2 回分の終了ログ 4 行(2 回 × 2 サイト)が返る
+   - `cache_update_failed`: 検索文字列を正常時のログ `キャッシュ更新完了` に差し替えると 2 行が返る(日本語の検索文字列が正しく渡っていることの確認も兼ねる)
+2. **ルールを作成**: `alert-fetch-job-health`(`docs/alerts/alert-fetch-job-health.json` を REST API で PUT)。作成後に取り出したクエリの日本語が壊れていないことも確認した
+3. **発火の確認**: 必ず当たる変種(上の `fetch_failed` の差し替え)で一時的なルール `alert-test-fire` を作り、実際に発火させた
+   - 作成の約 3 分後に発火(2026-09-24 02:33:28)
+   - 発火した警告の次元が `problem = fetch_failed` になっていること、アクション(メール通知)が抑止されていないことを確認
+   - 確認後、一時ルールを削除し、発火した警告は Closed にした
+4. **古い 3 本を削除**: 定義を手元に退避してから `alert-fetch-job-missing` / `alert-fetch-job-failed` / `alert-cache-update-failed` を削除。
+   新しいルールは作成後も発火していない(誤検知なし)
+
+ログ検索アラートは 3 本から 1 本になった。監視している条件は変わらない。
+
+### 2.7 効果
+
+(翌日以降の Cost Management の日別費用で確認して追記する。見込みは Azure Monitor の日額が約 7.5 円 → 約 2.5 円)
