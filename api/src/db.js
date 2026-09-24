@@ -28,7 +28,7 @@
 //   listModVersions(modId)      バージョン履歴(新しい順)
 //   listVersionSnapshots(modId, from, to)  バージョンごとの時系列データ(古い順)
 //   getOverview(from, platform) 全 mod の最新値と期間開始時点の値、合計の推移(platform で絞り込める)
-//   listSnapshotHistory()       全 mod のダウンロード数の履歴(一覧画面のキャッシュ用)
+//   listSnapshotHistory()       全 mod のダウンロード数の履歴(一覧画面のキャッシュと日ごとの増加の計算用)
 //   listFetchLogs(limit)        取得ジョブの実行記録(新しい順。プラットフォームごとに 1 行)
 // ============================================================
 
@@ -456,7 +456,8 @@ async function getOverview(from, platform) {
   };
 }
 
-// 全 mod のダウンロード数の履歴を返す(一覧画面のキャッシュを作るため)
+// 全 mod のダウンロード数の履歴を返す(一覧画面のキャッシュを作るため。キャッシュが無い時は
+// GetOverview が日ごとの増加(dailyIncrease.js)の材料としても使う)
 // 出力: [{ mod_id, platform, captured_at, download_count }, ...]  ※ mod_id 順、同じ mod の中は古い順
 // getOverview は from / platform を SQL の中で絞り込むが、キャッシュ(cache.js)は
 // 「全期間・全プラットフォーム」の履歴を 1 つ置いておき、絞り込みは読む側の JS で行う。
