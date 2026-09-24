@@ -7,6 +7,7 @@
 // 流れ:
 //   1. 起動時に GET /api/mods で mod 一覧を取り、選択中のプラットフォームのものをセレクトボックスに入れる
 //   2. プラットフォームか期間が変わるたびに GET /api/overview?platform= で全 mod の一覧を取り直す
+//      (合計の推移と日ごとの増加もこの応答に入っている)
 //   3. mod か期間が変わるたびに、その mod の
 //        GET /api/mods/{id}/summary            (今の数字)
 //        GET /api/mods/{id}/snapshots          (時系列。期間は ?from= で絞る)
@@ -61,6 +62,7 @@ const state = {
 // Chart.js のインスタンス。描き直すときは destroy してから作り直す
 const charts = {
   totals: null,     // 全 mod 合計の推移
+  daily: null,      // 全 mod の日ごとの増加
   downloads: null,  // 選択中 mod のダウンロード数推移
   versions: null,   // 選択中 mod のバージョン別積み上げ
 };
@@ -82,6 +84,9 @@ const el = {
   ovRatingHead: document.getElementById("ovRatingHead"),
   totalsCanvas: document.getElementById("totalsChart"),
   overviewTableBody: document.querySelector("#overviewTable tbody"),
+  // 日ごとの増加
+  dailyCanvas: document.getElementById("dailyChart"),
+  dailyTableBody: document.querySelector("#dailyTable tbody"),
   // 選択中 mod の詳細
   detailTitle: document.getElementById("detailTitle"),
   statDownloads: document.getElementById("statDownloads"),
@@ -359,6 +364,8 @@ async function loadOverview() {
     renderOverviewTiles();
     renderTotalsChart();
     renderOverviewTable();
+    renderDailyChart();
+    renderDailyTable();
   } catch (err) {
     showError(`全 mod の一覧の取得に失敗しました(${err.message})`);
   }
@@ -545,6 +552,108 @@ function renderOverviewTable() {
 function highlightSelectedOverviewRow() {
   for (const tr of el.overviewTableBody.querySelectorAll("tr")) {
     tr.classList.toggle("is-selected", tr.dataset.modId === String(state.modId));
+  }
+}
+
+// ============================================================
+// 描画: 日ごとの増加
+// ============================================================
+
+// API の date("2026-09-23" = 日本時間 9/23 の増加)→ グラフの横軸の位置(ミリ秒)
+// 日本時間のその日の 0 時に置く(横軸の日付の目盛りと棒の位置がそろう)
+function dailyPointTime(date) {
+  return Date.parse(`${date}T00:00:00+09:00`);
+}
+
+// 日ごとの増加の棒グラフと、7 日平均の折れ線(同じ単位なので縦軸は 1 本)
+function renderDailyChart() {
+  const daily = state.overview.daily;
+  const barPoints = daily.map((d) => ({ x: dailyPointTime(d.date), y: d.increase }));
+  const averagePoints = daily.map((d) => ({ x: dailyPointTime(d.date), y: d.average_7d }));
+
+  if (charts.daily) {
+    charts.daily.destroy();
+  }
+
+  charts.daily = new Chart(el.dailyCanvas, {
+    data: {
+      datasets: [
+        {
+          type: "bar",
+          label: "その日の増加",
+          data: barPoints,
+          order: 1,
+          backgroundColor: cssVar("--series-1"),
+          maxBarThickness: 24,
+          borderRadius: 4,
+          borderSkipped: "start",  // 角丸は値の側だけ(0 の線の側は四角のまま)
+        },
+        {
+          type: "line",
+          label: "7 日平均",
+          data: averagePoints,
+          order: 0,  // order が小さいほど手前に描かれる(線を棒の上に出す)
+          borderColor: cssVar("--series-2"),
+          backgroundColor: cssVar("--series-2"),  // 凡例の四角を塗りつぶすため
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: cssVar("--series-2"),
+          pointBorderColor: cssVar("--surface"),
+          pointBorderWidth: 2,
+          spanGaps: false,  // 平均が出ない日(null)は線を切る
+          tension: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          align: "start",
+          labels: {
+            color: cssVar("--text-secondary"),
+            boxWidth: 12,
+            boxHeight: 12,
+            sort: (a, b) => a.datasetIndex - b.datasetIndex,  // order ではなく datasets の並び(棒が先)で並べる
+          },
+        },
+        tooltip: {
+          itemSort: (a, b) => a.datasetIndex - b.datasetIndex,
+          callbacks: {
+            title: (items) => `${formatDate(new Date(items[0].parsed.x).toISOString())} の増加`,
+            label: (item) => `${item.dataset.label}: ${item.parsed.y === null ? "–" : formatSigned(item.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        x: { ...timeAxisOptions(), offset: true },  // offset: 両端の棒が半分切れないように余白を取る
+        y: { ...countAxisOptions(), beginAtZero: true },
+      },
+    },
+  });
+}
+
+// 日ごとの増加の表(新しい日が上)
+function renderDailyTable() {
+  clearTable(el.dailyTableBody);
+  const daily = state.overview.daily;
+  if (daily.length === 0) {
+    appendEmptyRow(el.dailyTableBody, 4, "この期間のデータはありません");
+    return;
+  }
+  for (const d of [...daily].reverse()) {
+    const tr = document.createElement("tr");
+    tr.appendChild(makeCell(formatDate(`${d.date}T00:00:00Z`)));
+    tr.appendChild(makeCell(formatSigned(d.increase), "num"));
+    tr.appendChild(makeCell(d.average_7d === null ? "–" : formatNumber(d.average_7d), "num"));
+    tr.appendChild(makeCell(formatNumber(d.mod_count), "num"));
+    el.dailyTableBody.appendChild(tr);
   }
 }
 
@@ -842,6 +951,7 @@ function renderLogTable(logs) {
 function rerenderAllCharts() {
   if (state.overview) {
     renderTotalsChart();
+    renderDailyChart();
   }
   if (state.summary) {
     renderDownloadsChart();
