@@ -343,11 +343,17 @@ Azure 側の準備(1 回だけ):
 az identity create -g <リソースグループ> -n <ID 名>
 az identity federated-credential create -g <リソースグループ> --identity-name <ID 名> -n github-main \
   --issuer https://token.actions.githubusercontent.com \
-  --subject repo:<GitHub のユーザー名>/<リポジトリ名>:ref:refs/heads/main \
+  --subject repo:<ユーザー名>@<所有者 ID>/<リポジトリ名>@<リポジトリ ID>:ref:refs/heads/main \
   --audiences api://AzureADTokenExchange
 az role assignment create --assignee-object-id <ID の principalId> --assignee-principal-type ServicePrincipal \
   --role "Website Contributor" --scope <Function App のリソース ID>
 ```
+
+`--subject` は GitHub が発行するトークンの subject と完全に一致している必要があります。このリポジトリでは、所有者とリポジトリの
+数値 ID を含む形式(例: `repo:ryuka-dev@64645371/Mod-Insight@1370703702:ref:refs/heads/main`)で発行されます。
+ID を含むので、リポジトリを消して同じ名前で作り直した別物からはログインできません。
+数値 ID は `gh api repos/<ユーザー名>/<リポジトリ名> --jq '"\(.owner.id) \(.id)"'` で確認できます。
+一致しない場合、ワークフローの「Azure にログイン」のログに実際の subject と `AADSTS700213` が出るので、その値に合わせます。
 
 リポジトリの Secrets には `AZURE_CLIENT_ID`(ID の clientId)、`AZURE_TENANT_ID`、`AZURE_SUBSCRIPTION_ID` を登録します。
 どれも「どの ID か」を示す番号で、これだけではログインできません。
