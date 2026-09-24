@@ -13,8 +13,8 @@
       2. フィルター行    配布サイトと期間。全 mod の一覧と、下の mod の詳細の両方に効く
       3. 全 mod の状況   合計の数字、合計の推移、mod ごとの一覧表(行クリックで 4 の mod が切り替わる)
       4. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均
-      5. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別
-      6. 表             バージョン履歴と取得ジョブの実行記録
+      5. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別、バージョン履歴
+      6. 運用状況        取得ジョブの実行記録(システム全体の記録なので、上のどの選択も効かない)
     データはすべて app.js が API から取ってきて、この HTML の空の要素に流し込む。
   -->
 
@@ -170,29 +170,33 @@
       </details>
     </section>
 
-    <section class="two-columns">
-      <div class="card">
-        <h2 class="card-title">バージョン履歴</h2>
-        <div class="table-scroll">
-          <table id="versionTable">
-            <thead>
-              <tr><th>バージョン</th><th>公開日</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+    <section class="card">
+      <h2 class="card-title">バージョン履歴</h2>
+      <p class="card-note">この mod の全バージョン(期間の選択に関係なく全期間)。</p>
+      <div class="table-scroll">
+        <table id="versionTable">
+          <thead>
+            <tr><th>バージョン</th><th>公開日</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
-      <div class="card">
-        <h2 class="card-title">取得ジョブの実行記録</h2>
-        <p class="card-note">毎日 0:00(日本時間)に自動実行。配布サイトごとに 1 行。直近 10 件を表示。</p>
-        <div class="table-scroll">
-          <table id="logTable">
-            <thead>
-              <tr><th>実行日時</th><th>配布サイト</th><th>結果</th><th class="num">件数</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+    </section>
+
+    <!-- ここから下はシステム全体の記録。配布サイト・期間・mod の選択はどれも効かない -->
+    <div class="section-head">
+      <h2 class="section-title">運用状況</h2>
+    </div>
+    <section class="card">
+      <h2 class="card-title">取得ジョブの実行記録</h2>
+      <p class="card-note">毎日 0:00(日本時間)に自動実行。配布サイトごとに 1 行。両方の配布サイトの直近 10 件を表示(上の選択には関係しません)。</p>
+      <div class="table-scroll">
+        <table id="logTable">
+          <thead>
+            <tr><th>実行日時</th><th>配布サイト</th><th>結果</th><th class="num">件数</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
     </section>
   </main>

@@ -279,16 +279,6 @@ body {
   font-weight: 400;
 }
 
-.two-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
-}
-
-.two-columns .card {
-  margin-bottom: 0;
-}
-
 /* ---------- 表 ---------- */
 .table-details {
   margin-top: 12px;
