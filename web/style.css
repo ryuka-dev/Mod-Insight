@@ -255,9 +255,19 @@ body {
   font-weight: 600;
 }
 
+/* 詳細セクションの見出し行: 左に「○○ の詳細」、右に mod のセレクトボックス(狭ければ折り返す) */
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 24px 0 12px;
+}
+
 /* 詳細セクションの見出し(どの mod を見ているか) */
 .section-title {
-  margin: 24px 0 12px;
+  margin: 0;
   font-size: 18px;
   font-weight: 600;
 }
