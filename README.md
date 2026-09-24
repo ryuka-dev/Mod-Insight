@@ -183,6 +183,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | フロントエンド | 素の HTML / JavaScript + Chart.js、Azure Static Web Apps(無料枠) | 1 画面にグラフが数枚だけなので、ビルド工程が要らない構成にした |
 | 監視 | Application Insights + Azure Monitor アラート | 関数の実行記録が自動で集まり、「ジョブが動かなかった」「失敗した」をメールで通知できる |
 | 手動実行の保護 | Azure Functions の関数キー(`authLevel: "function"`) | キーの発行・無効化を Azure 側で管理でき、コードに秘密情報を持たなくてよい |
+| バックエンドの自動配置 | GitHub Actions + OpenID Connect + ユーザー割り当てマネージド ID | GitHub にパスワードや発行プロファイルを置かずに済む。ID は main ブランチからの要求だけを受け付け、権限は Function App 1 つに限っている |
 
 ## 5. データベース
 
@@ -257,7 +258,7 @@ Mod-Insight/
   scripts/                     単体で動かす補助スクリプト(API の確認、データの埋め戻し)
   docs/                        監視の説明、運用記録、README 用の画像
   api/test/                    ユニットテスト(node:test)
-  .github/workflows/           テスト実行と web/ の Static Web Apps への配置
+  .github/workflows/           テスト実行、api/ の Azure Functions への配置、web/ の Static Web Apps への配置
 ```
 
 ## 9. ローカルでの実行とデプロイ
@@ -331,7 +332,28 @@ npx http-server web -p 8080
 
 - **フロントエンド**: `main` ブランチに `web/` の変更を push すると、GitHub Actions(`.github/workflows/deploy-web.yml`)が Static Web Apps に配置します。
   リポジトリの Secrets に `AZURE_STATIC_WEB_APPS_API_TOKEN`(Static Web Apps のデプロイトークン)の登録が必要です。
-- **バックエンド**: `api/` の `host.json`、`package.json`、`package-lock.json`、`src/` を zip にまとめ、リモートビルドでデプロイします。
+- **バックエンド**: `main` ブランチに `api/` の変更を push すると、GitHub Actions(`.github/workflows/deploy-api.yml`)が
+  テスト → zip 作成 → Function App への配置 → `GET /api/overview` の動作確認 を行います。テストが失敗した場合は配置しません。
+
+バックエンドの配置では、Azure へのログインに OpenID Connect を使っています。GitHub が実行のたびに発行する短時間だけ有効なトークンを、
+Azure のユーザー割り当てマネージド ID と交換してログインするので、GitHub にパスワードや発行プロファイルを置いていません。
+Azure 側の準備(1 回だけ):
+
+```
+az identity create -g <リソースグループ> -n <ID 名>
+az identity federated-credential create -g <リソースグループ> --identity-name <ID 名> -n github-main \
+  --issuer https://token.actions.githubusercontent.com \
+  --subject repo:<GitHub のユーザー名>/<リポジトリ名>:ref:refs/heads/main \
+  --audiences api://AzureADTokenExchange
+az role assignment create --assignee-object-id <ID の principalId> --assignee-principal-type ServicePrincipal \
+  --role "Website Contributor" --scope <Function App のリソース ID>
+```
+
+リポジトリの Secrets には `AZURE_CLIENT_ID`(ID の clientId)、`AZURE_TENANT_ID`、`AZURE_SUBSCRIPTION_ID` を登録します。
+どれも「どの ID か」を示す番号で、これだけではログインできません。
+
+手元から配置する場合は、`api/` の `host.json`、`package.json`、`package-lock.json`、`src/` を zip にまとめ、リモートビルドで配置します
+(ワークフローも同じコマンドを使っています)。
 
 ```
 az functionapp deployment source config-zip -g <リソースグループ> -n <Function App 名> --src api.zip --build-remote true

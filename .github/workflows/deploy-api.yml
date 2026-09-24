@@ -1,0 +1,97 @@
+# ============================================================
+# deploy-api.yml
+#
+# バックエンド(api/ ディレクトリ)を Azure Functions(Function App mod-insight-ryuka)に自動配置する。
+#
+# 動くタイミング:
+#   - main ブランチに push されたとき(api/ 配下かこのファイル自体が変わった場合だけ)
+#   - GitHub の Actions 画面から手動実行したとき(workflow_dispatch。main を選んだ時だけ Azure にログインできる)
+#
+# 流れ:
+#   1. テストを実行し、失敗したらここで止まる(壊れたコードを配置しない)
+#   2. host.json / package.json / package-lock.json / src/ を zip にまとめる
+#      (node_modules は入れない。Azure 側で npm install する --build-remote true を使う)
+#   3. Azure にログインし、手作業でやっていたのと同じ az functionapp deployment source config-zip で配置する
+#   4. GET /api/overview が 200 を返すかを確かめる(Blob キャッシュから返るので DB は起こさない)
+#
+# Azure へのログイン(OpenID Connect):
+#   パスワードや発行プロファイルは GitHub に置いていない。実行のたびに GitHub が発行する
+#   短時間だけ有効なトークンを、Azure のユーザー割り当てマネージド ID
+#   id-mod-insight-github-deploy と交換してログインする。
+#   - その ID は「このリポジトリの main ブランチ」からの要求だけを受け付ける(フェデレーション資格情報)
+#   - 権限は Function App mod-insight-ryuka に対する Website Contributor だけ
+#   Secrets に入れているのは AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID の 3 つで、
+#   どれも「どの ID か」を示す番号であり、それだけではログインできない。
+#
+# フロントエンド(web/)はこのワークフローでは配置しない(deploy-web.yml)。
+# ============================================================
+
+name: Deploy api to Azure Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
+
+# OIDC のトークンを受け取るために id-token: write が必要
+permissions:
+  id-token: write
+  contents: read
+
+# 続けてマージした時に配置が重ならないよう、1 つずつ順番に実行する
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-mod-insight
+  FUNCTION_APP: mod-insight-ryuka
+  API_BASE_URL: https://mod-insight-ryuka-hrhbbdauc0ezbfc7.eastasia-01.azurewebsites.net/api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Node.js を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: 依存パッケージを入れる
+        run: npm ci
+
+      - name: テストを実行
+        run: npm test
+
+      - name: 配置用の zip を作る
+        run: zip -r ../api.zip host.json package.json package-lock.json src
+
+      - name: Azure にログイン(OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Function App へ配置
+        run: >
+          az functionapp deployment source config-zip
+          --resource-group "$RESOURCE_GROUP"
+          --name "$FUNCTION_APP"
+          --src ../api.zip
+          --build-remote true
+
+      - name: 配置後の動作確認
+        # 配置直後はアプリの再起動で数十秒応答しないことがあるので、10 秒おきに最大 12 回試す
+        run: curl --fail --silent --show-error --output /dev/null --retry 12 --retry-delay 10 --retry-all-errors "$API_BASE_URL/overview"

@@ -12,7 +12,8 @@
 #   Node.js は Azure 上の Function App と同じ 24 を使う。
 #   テストは Node.js 標準の node:test なので、npm ci で本番の依存を入れるだけで動く。
 #   DB や外部 API にはつながない(つなぐ必要のあるテストは書かない方針)。
-#   デプロイはしない(バックエンドは zip deploy、フロントエンドは deploy-web.yml)。
+#   デプロイはしない(バックエンドは deploy-api.yml、フロントエンドは deploy-web.yml)。
+#   deploy-api.yml も配置の前に同じテストを実行する。
 # ============================================================
 
 name: Test api
