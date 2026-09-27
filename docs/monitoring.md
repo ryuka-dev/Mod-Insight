@@ -91,18 +91,62 @@ exceptions
 
 ## 通知(アラート)
 
-通知先はアクショングループ `ag-mod-insight-email`(Azure アカウントのメールアドレス宛)。
+通知先はアクショングループ `ag-mod-insight-email`(作者の個人のメールアドレス宛)。
+メールの宛先は Azure から届く確認メールのリンクを開くまで送信されない。Portal 上の状態が `Enabled` でも、警告の履歴に「アクショングループが実行された」と出ても、
+届いたことにはならないので、宛先を変えたら一時ルールを発火させて**受信側で**確認する(`docs/ops-log.md` 2.8 節)。
 ログ検索アラートのルールはリージョン `eastasia` に置いている(このサブスクリプションのポリシーで作成できるリージョンが限られており、`japaneast` では作成を拒否されたため)。
 
-| 名前 | 条件 | 確認間隔 | 意図 |
-|---|---|---|---|
-| `alert-fetch-job-missing` | 直近 48 時間に `FetchThunderstoreDataTimer` の成功した実行が 1 件もない | 1 時間ごと | 毎日 15:00 UTC の取得が動いていない(タイマーの停止、アプリの停止、実行エラー)ことを検知する。ログ検索アラートの窓は 24 時間か 48 時間しか選べず、24 時間ちょうどだと実行タイミングのわずかなずれで誤検知し得るため 48 時間にしている(検知は最大で 1 日遅れる) |
-| `alert-fetch-job-failed` | 直近 1 時間のログに `status=failed` を含む取得ジョブの終了ログがある | 1 時間ごと | 取得ジョブ自体は最後まで動いたが、API 取得か DB 保存に失敗した回を検知する(ジョブは例外を握りつぶして `fetch_logs` に記録する設計なので、`requests` の失敗では捕まらない) |
-| `alert-api-failures` | 5 分間に失敗したリクエストが 5 件を超える | 5 分ごと | REST API の障害(DB に接続できない等)を検知する |
-| `alert-cache-update-failed` | 直近 1 時間のログに `キャッシュの更新に失敗しました` がある | 1 時間ごと | 取得ジョブが DB には保存できたのに Blob キャッシュの作り直しに失敗した回を検知する。`fetch_logs` は success のままなので `alert-fetch-job-failed` では捕まらず、放置するとダッシュボードが前日のデータを出し続ける(`docs/ops-log.md` 1.8 節) |
-| `alert-sql-free-limit-low` | Azure SQL の無料枠の残量(`free_amount_remaining`)の 1 時間の最小値が 20,000 vCore 秒を下回る | 1 時間ごと | 無料枠(月 100,000 vCore 秒)を使い切ると `freeLimitExhaustionBehavior = AutoPause` により**その月の残りずっと DB が止まる**。開発で DB を長く起こした日が続くと現実に起こるため(2026-09-15 は 1 日で 22,000。`docs/ops-log.md` 1.5 節)、残り 20% で先に知らせる。対象リソースは Application Insights ではなく SQL Database 本体 |
+| 名前 | 種類 | 条件 | 確認間隔 | 意図 |
+|---|---|---|---|---|
+| `alert-fetch-job-health` | ログ検索 | 下の 3 つの問題のどれかがある(問題ごとに別々に発火・自動解決する) | 1 時間ごと | 取得ジョブまわりの異常をまとめて検知する |
+| `alert-api-failures` | メトリック | 5 分間に失敗したリクエストが 5 件を超える | 5 分ごと | REST API の障害(DB に接続できない等)を検知する |
+| `alert-sql-free-limit-low` | メトリック | Azure SQL の無料枠の残量(`free_amount_remaining`)の 1 時間の最小値が 20,000 vCore 秒を下回る | 1 時間ごと | 無料枠(月 100,000 vCore 秒)を使い切ると `freeLimitExhaustionBehavior = AutoPause` により**その月の残りずっと DB が止まる**。開発で DB を長く起こした日が続くと現実に起こるため(2026-09-15 は 1 日で 22,000。`docs/ops-log.md` 1.5 節)、残り 20% で先に知らせる。対象リソースは Application Insights ではなく SQL Database 本体 |
 
-費用の目安: ログ検索アラートは 1 ルールあたり月 1 ドル未満、メトリックアラートは月 0.1 ドル程度。
+### `alert-fetch-job-health` が見ている 3 つの問題
+
+クエリは問題 1 つにつき 1 行(`problem` 列と `detail` 列)を返し、行があれば発火する。`problem` を次元にしているので、
+通知には問題の種類が出て、それぞれ独立に発火・解決する。
+
+| `problem` | 条件 | 意図 |
+|---|---|---|
+| `fetch_missing` | 直近 48 時間に `FetchThunderstoreDataTimer` の成功した実行が 1 件もない | 毎日 15:00 UTC の取得が動いていない(タイマーの停止、アプリの停止、実行エラー)ことを検知する。24 時間ちょうどだと実行タイミングのわずかなずれで誤検知し得るため 48 時間にしている(検知は最大で 1 日遅れる) |
+| `fetch_failed` | 直近 1 時間のログに `status=failed` を含む取得ジョブの終了ログがある | 取得ジョブ自体は最後まで動いたが、API 取得か DB 保存に失敗した回を検知する(ジョブは例外を握りつぶして `fetch_logs` に記録する設計なので、`requests` の失敗では捕まらない) |
+| `cache_update_failed` | 直近 1 時間のログに `キャッシュの更新に失敗しました` がある | 取得ジョブが DB には保存できたのに Blob キャッシュの作り直しに失敗した回を検知する。`fetch_logs` は success のままなので `fetch_failed` では捕まらず、放置するとダッシュボードが前日のデータを出し続ける(`docs/ops-log.md` 1.8 節) |
+
+ルールの窓は 48 時間(`fetch_missing` に合わせる)で、残り 2 つはクエリの中で `ago(1h)` に絞っている。
+こうしないと、1 回の失敗が 48 時間ずっと「発火中」になり続ける。
+
+```kusto
+let jobLogs = traces
+    | where customDimensions.Category in ('Function.FetchThunderstoreDataTimer.User', 'Function.RunFetch.User');
+let lastSuccess = toscalar(requests
+    | where name == 'FetchThunderstoreDataTimer' and success == 'True'
+    | summarize max(timestamp));
+let notRun = print problem = 'fetch_missing', detail = 'no successful scheduled fetch in the last 48 hours'
+    | where isnull(lastSuccess);
+let jobFailed = jobLogs
+    | where timestamp > ago(1h) and message contains 'status=failed'
+    | project problem = 'fetch_failed', detail = message;
+let cacheFailed = jobLogs
+    | where timestamp > ago(1h) and message contains 'キャッシュの更新に失敗'
+    | project problem = 'cache_update_failed', detail = message;
+union notRun, jobFailed, cacheFailed
+```
+
+注意: KQL では `missing` を `let` の変数名に使えない(`let missing = ...` は `BadArgumentError` になる)。
+
+以前は 3 つを別々のログ検索アラートにしていたが、2026-09-24 に 1 本にまとめた(`docs/ops-log.md` 2 章)。
+
+### 費用
+
+2026-09-01〜09-23 の実績(Cost Management)。
+
+| 種類 | 費用 | 備考 |
+|---|---|---|
+| ログ検索アラート | 1 本あたり 1 日約 2.5 円(月約 75 円) | 発火の有無に関係なく本数 × 時間で課金される。確認間隔 15 分以上は同じ料金区分なので、間隔を延ばしても安くならない |
+| メトリックアラート | 0 円 | この 2 本の範囲では課金されていない |
+
+ログ検索アラートを増やす時は、既存の `alert-fetch-job-health` のクエリに `problem` を 1 つ足す形にする(本数を増やさない)。
 
 ### アラートを作ったコマンド
 
@@ -118,12 +162,16 @@ az monitor metrics alert create -g rg-mod-insight -n alert-sql-free-limit-low --
   --condition "min free_amount_remaining < 20000" --window-size 1h --evaluation-frequency 1h \
   --severity 1 --action "$AG"
 
-# キャッシュ更新失敗(ログ検索アラート。対象は Application Insights)
-az monitor scheduled-query create -g rg-mod-insight -n alert-cache-update-failed -l eastasia --scopes "$AI" \
-  --condition "count 'Failures' > 0" \
-  --condition-query "Failures=traces | where customDimensions.Category in ('Function.FetchThunderstoreDataTimer.User', 'Function.RunFetch.User') | where message contains 'キャッシュの更新に失敗'" \
-  --window-size 1h --evaluation-frequency 1h --severity 2 --action-groups "$AG"
+# 取得ジョブの健全性(ログ検索アラート。対象は Application Insights)
+# 定義は docs/alerts/alert-fetch-job-health.json。{SUBSCRIPTION_ID} を置き換えて REST API で作る
+sed "s/{SUBSCRIPTION_ID}/$SUB/g" docs/alerts/alert-fetch-job-health.json > /tmp/rule.json
+az rest --method put --body @/tmp/rule.json \
+  --url "https://management.azure.com/subscriptions/$SUB/resourceGroups/rg-mod-insight/providers/Microsoft.Insights/scheduledQueryRules/alert-fetch-job-health?api-version=2021-08-01"
 ```
+
+`alert-fetch-job-health` は `az monitor scheduled-query create` ではなく JSON ファイルで作っている。
+クエリが複数行で引用符と日本語を含み、次元の指定もあるため、コマンドライン引数で渡すより定義をファイルにしたほうが確実で、
+リポジトリに設定そのものを残せるため。
 
 ### SQL Database 側のメトリック
 
