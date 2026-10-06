@@ -34,6 +34,7 @@
 // 「同じ回の取得」としてプラットフォーム横断で合計できる。
 // 全プラットフォームが終わったら、GET API 用の Blob キャッシュ(cache.js)を作り直す。
 // キャッシュの失敗はログに出すだけで、results(= fetch_logs の内容)には影響しない。
+// 最後に運用費用(costs.js)も取り直す。mod のデータとは関係ないので、失敗しても results には入れない。
 //
 // 入力: logger(context または console。log / error メソッドを持つもの)
 // 出力: { run_at, results: [{ platform, status, error_message, records_fetched }, ...] }
@@ -42,6 +43,7 @@
 
 const db = require("./db");
 const cache = require("./cache");
+const costs = require("./costs");
 const thunderstore = require("./platforms/thunderstore");
 const nexusmods = require("./platforms/nexusmods");
 
@@ -158,6 +160,9 @@ async function runFetchJob(logger) {
 
   // 保存が終わった今は DB が起きているので、この場でキャッシュを作り直す(失敗しても例外は出ない)
   await cache.rebuildAll(runAt, logger);
+
+  // 運用費用は 1 日 1 回取れれば足りるので、取得ジョブのついでに取る。DB を使わないので最後に回す
+  await costs.refreshCosts(runAt, logger);
 
   return { run_at: runAt, results: results };
 }

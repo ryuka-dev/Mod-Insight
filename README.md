@@ -140,6 +140,7 @@ flowchart LR
   Blob[(Blob Storage<br/>API 応答のキャッシュ)]
   Web[Azure Static Web Apps<br/>HTML + JS + Chart.js]
   AI[Application Insights<br/>アラート]
+  Cost[Azure Cost Management<br/>運用費用]
   User[閲覧者]
 
   Timer --> Job
@@ -149,6 +150,7 @@ flowchart LR
   Adapters --> NX
   Job --> DB
   Job -.取得後に作り直す.-> Blob
+  Job -.運用費用を取得.-> Cost
   Api --> Blob
   Api -.キャッシュが無い時だけ.-> DB
   User --> Web
@@ -162,6 +164,7 @@ flowchart LR
 3. `api/src/fetchJob.js` がその形だけを見て DB に保存する(配布サイトの項目名は知らない)
 4. 配布サイトごとに実行結果を `fetch_logs` に 1 行残す。1 つの mod で失敗しても他の mod の保存は続ける
 5. 最後に `api/src/cache.js` が GET API の応答をすべて Blob Storage に書き直す(下記「読み取りの流れ」)
+6. ついでに `api/src/costs.js` がこのシステム自身の運用費用(リソースグループの日別・サービス別の費用)を Cost Management から取り、`costs.json` として Blob Storage に置く。費用の正本は Azure 側にあるので DB には入れない。失敗しても mod データの取得には影響しない
 
 **読み取りの流れ**
 
@@ -183,6 +186,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | フロントエンド | 素の HTML / JavaScript + Chart.js、Azure Static Web Apps(無料枠) | 1 画面にグラフが数枚だけなので、ビルド工程が要らない構成にした |
 | 監視 | Application Insights + Azure Monitor アラート | 関数の実行記録が自動で集まり、「ジョブが動かなかった」「失敗した」をメールで通知できる |
 | 手動実行の保護 | Azure Functions の関数キー(`authLevel: "function"`) | キーの発行・無効化を Azure 側で管理でき、コードに秘密情報を持たなくてよい |
+| 運用費用の取得 | Cost Management Query API + Function App のシステム割り当てマネージド ID | 呼び出しは無料で、コードにも設定にも秘密を置かずに済む。ロールはリソースグループに対する Cost Management Reader だけ(費用を読む以外のことはできない) |
 | バックエンドの自動配置 | GitHub Actions + OpenID Connect + ユーザー割り当てマネージド ID | GitHub にパスワードや発行プロファイルを置かずに済む。ID は main ブランチからの要求だけを受け付け、権限は Function App 1 つに限っている |
 
 ## 5. データベース
@@ -216,6 +220,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | GET | `/mods/{modId}/versions` | バージョン履歴 |
 | GET | `/mods/{modId}/version-snapshots?from=&to=` | バージョンごとのダウンロード数の時系列 |
 | GET | `/fetch/logs` | 取得ジョブの実行記録 |
+| GET | `/costs` | このシステムの運用費用(日別・サービス別、集計が確定した日まで)。取得ジョブが置いたキャッシュだけから返す |
 | POST | `/fetch/run` | 取得ジョブを今すぐ 1 回実行(ヘッダー `x-functions-key` が必要) |
 
 GET はすべて認証なし(公開データの読み取りのみ)。エラーは `{ "error": "説明" }` の形で、
@@ -232,7 +237,7 @@ Application Insights に関数の実行記録とログが自動で集まりま�
 
 | アラート | 条件 |
 |---|---|
-| `alert-fetch-job-health` | 取得ジョブの異常。次のどれかがあれば、その種類ごとに通知する: 直近 48 時間に定時の取得が 1 回も成功していない / 終了ログに `status=failed` がある(API 取得や DB 保存に失敗した回)/ DB には保存できたのに Blob キャッシュの作り直しに失敗した |
+| `alert-fetch-job-health` | 取得ジョブの異常。次のどれかがあれば、その種類ごとに通知する: 直近 48 時間に定時の取得が 1 回も成功していない / 終了ログに `status=failed` がある(API 取得や DB 保存に失敗した回)/ DB には保存できたのに Blob キャッシュの作り直しに失敗した / 運用費用の取得に失敗した |
 | `alert-api-failures` | 5 分間に失敗した HTTP リクエストが 5 件を超える |
 | `alert-sql-free-limit-low` | Azure SQL の無料枠の残りが 20,000 vCore 秒(20%)を下回った(使い切るとその月の残りは DB が止まる) |
 
@@ -247,10 +252,11 @@ Application Insights に関数の実行記録とログが自動で集まりま�
 ```
 Mod-Insight/
   api/                         Azure Functions プロジェクト
-    src/functions/             関数 1 つにつき 1 ファイル(HTTP API 8 本 + タイマー 1 本)
+    src/functions/             関数 1 つにつき 1 ファイル(HTTP API 9 本 + タイマー 1 本)
     src/platforms/             配布サイトごとのアダプター(API の応答 → 共通の形)
     src/fetchJob.js            取得ジョブ本体(タイマーと手動実行の両方から呼ぶ)
     src/cache.js               GET API 応答の Blob Storage キャッシュ(読み・作り直し)
+    src/costs.js               運用費用を Cost Management から取って costs.json に置く
     src/db.js                  SQL をすべてここに集約
     src/httpUtil.js            パラメータの解釈とエラー応答の形
   web/                         ダッシュボード(index.html / app.js / style.css / config.js)
@@ -281,12 +287,14 @@ Mod-Insight/
     "FUNCTIONS_WORKER_RUNTIME": "node",
     "AzureWebJobsStorage": "",
     "AZURE_SQL_CONNECTION_STRING": "<Azure SQL の接続文字列>",
-    "CACHE_STORAGE_CONNECTION_STRING": "<Blob Storage の接続文字列(省略可)>"
+    "CACHE_STORAGE_CONNECTION_STRING": "<Blob Storage の接続文字列(省略可)>",
+    "COST_MANAGEMENT_SCOPE": "/subscriptions/<サブスクリプション ID>/resourceGroups/<リソースグループ>(省略可)"
   }
 }
 ```
 
 `CACHE_STORAGE_CONNECTION_STRING` を省略するとキャッシュを使わず、GET API は毎回 DB に問い合わせます。
+`COST_MANAGEMENT_SCOPE` を省略すると運用費用は取得しません。手元では `az login` したアカウントの権限で取得します。
 `AzureWebJobsStorage` と同じアカウントを指してかまいませんが、設定名を分けているのは、ローカルから本物のストレージを使ってもタイマーの状態ファイルを共有しないためです。
 
 ```
@@ -365,7 +373,8 @@ ID を含むので、リポジトリを消して同じ名前で作り直した�
 az functionapp deployment source config-zip -g <リソースグループ> -n <Function App 名> --src api.zip --build-remote true
 ```
 
-Function App のアプリケーション設定に `AZURE_SQL_CONNECTION_STRING` と `CACHE_STORAGE_CONNECTION_STRING` を登録しておきます。
+Function App のアプリケーション設定に `AZURE_SQL_CONNECTION_STRING`、`CACHE_STORAGE_CONNECTION_STRING`、`COST_MANAGEMENT_SCOPE` を登録しておきます。
+運用費用を取るには、Function App のシステム割り当てマネージド ID を有効にし、リソースグループに対する Cost Management Reader を付けます。
 Windows の `Compress-Archive` で作った zip はパス区切りが `\` になり Linux 上で展開できないため、`/` 区切りで zip を作ってください。
 
 ## 10. 既知の制約と今後
