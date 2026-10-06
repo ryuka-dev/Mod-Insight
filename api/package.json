@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@azure/functions": "^4.0.0",
+    "@azure/identity": "^4.13.3",
     "@azure/storage-blob": "^12.33.0",
     "mssql": "^12.7.2"
   }
