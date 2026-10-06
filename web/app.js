@@ -14,7 +14,7 @@
 //        GET /api/mods/{id}/versions           (バージョン履歴)
 //        GET /api/mods/{id}/version-snapshots  (バージョンごとの時系列)
 //      を同時に取りに行き、揃ったら画面を描き直す
-//   4. GET /api/fetch/logs は mod に関係ないので起動時に 1 回だけ取る
+//   4. GET /api/fetch/logs と GET /api/costs は mod に関係ないので起動時に 1 回だけ取る
 //
 // 画面に出す文字列はすべて textContent で入れる(API から来た文字列を
 // innerHTML に入れると、万一 HTML が混ざっていたときにそのまま実行されてしまうため)。
@@ -57,6 +57,7 @@ const state = {
   snapshots: [],         // snapshots API の結果(古い順)
   versions: [],          // versions API の結果(新しい順)
   versionSnapshots: [],  // version-snapshots API の結果(古い順)
+  costs: null,           // costs API の結果(取れなければ null)
 };
 
 // Chart.js のインスタンス。描き直すときは destroy してから作り直す
@@ -65,6 +66,7 @@ const charts = {
   daily: null,      // 全 mod の日ごとの増加
   downloads: null,  // 選択中 mod のダウンロード数推移
   versions: null,   // 選択中 mod のバージョン別積み上げ
+  costs: null,      // 運用費用のサービス別積み上げ
 };
 
 // ---- 画面の要素をまとめて取得 ----
@@ -106,6 +108,15 @@ const el = {
   versionSnapshotTableHead: document.querySelector("#versionSnapshotTable thead"),
   versionSnapshotTableBody: document.querySelector("#versionSnapshotTable tbody"),
   versionTableBody: document.querySelector("#versionTable tbody"),
+  // 運用状況
+  costAverage: document.getElementById("costAverage"),
+  costAverageSub: document.getElementById("costAverageSub"),
+  costMonthly: document.getElementById("costMonthly"),
+  costMonthTotal: document.getElementById("costMonthTotal"),
+  costMonthTotalSub: document.getElementById("costMonthTotalSub"),
+  costZeroNote: document.getElementById("costZeroNote"),
+  costCanvas: document.getElementById("costChart"),
+  costTableBody: document.querySelector("#costTable tbody"),
   logTableBody: document.querySelector("#logTable tbody"),
 };
 
@@ -418,6 +429,24 @@ async function loadFetchLogs() {
     clearTable(el.logTableBody);
     appendEmptyRow(el.logTableBody, 4, `取得できませんでした(${err.message})`);
   }
+}
+
+// 運用費用(mod にも期間にも関係ないので起動時に 1 回だけ)
+async function loadCosts() {
+  try {
+    state.costs = await fetchJson("/costs");
+  } catch (err) {
+    state.costs = null;
+    clearTable(el.costTableBody);
+    appendEmptyRow(el.costTableBody, 3, `取得できませんでした(${err.message})`);
+    el.costAverageSub.textContent = "データがまだありません";
+    el.costCanvas.parentElement.hidden = true;  // 空のグラフの枠だけが残らないように隠す
+    return;
+  }
+  el.costCanvas.parentElement.hidden = state.costs.days.length === 0;
+  renderCostTiles();
+  renderCostChart();
+  renderCostTable();
 }
 
 // mod を切り替える(セレクトボックスと一覧表の行クリックの両方から呼ばれる)
@@ -961,6 +990,134 @@ function renderLogTable(logs) {
   }
 }
 
+// 費用を "3.16 円" のように表示する(1 円未満が多いので小数第 2 位まで)
+function formatCost(value) {
+  if (value === null || value === undefined) {
+    return "–";
+  }
+  const unit = state.costs.currency === "JPY" ? " 円" : ` ${state.costs.currency}`;
+  return value.toFixed(2) + unit;
+}
+
+// "2026-09-24" → "9/24"
+function shortDate(date) {
+  return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+}
+
+// 期間中ずっと 0 円だったサービス(グラフに出しても見えないので、名前だけ説明文に出す)
+function zeroCostServices() {
+  return state.costs.services.filter((name) => state.costs.days.every((d) => !d.services[name]));
+}
+
+// 運用費用の 3 つの数字: 直近 7 日の平均、その 30 日換算、今月の合計
+function renderCostTiles() {
+  const days = state.costs.days;
+  if (days.length === 0) {
+    el.costAverageSub.textContent = "データがまだありません";
+    return;
+  }
+
+  const recent = days.slice(-7);
+  const average = recent.reduce((sum, d) => sum + d.total, 0) / recent.length;
+  el.costAverage.textContent = formatCost(average);
+  el.costAverageSub.textContent = `${shortDate(recent[0].date)}〜${shortDate(recent[recent.length - 1].date)}(${recent.length} 日)`;
+  el.costMonthly.textContent = formatCost(average * 30);
+
+  // 「今月」は確定した最後の日が入っている月
+  const lastDate = days[days.length - 1].date;
+  const monthDays = days.filter((d) => d.date.slice(0, 7) === lastDate.slice(0, 7));
+  el.costMonthTotal.textContent = formatCost(monthDays.reduce((sum, d) => sum + d.total, 0));
+  el.costMonthTotalSub.textContent = `${shortDate(monthDays[0].date)}〜${shortDate(lastDate)}`;
+
+  const zero = zeroCostServices();
+  el.costZeroNote.textContent = zero.length > 0
+    ? ` ${zero.join("・")} は表示期間中ずっと 0 円のため、グラフには出していません。`
+    : "";
+}
+
+// 日別の費用をサービスごとに積み上げた棒グラフ。
+// 横軸は日付のラベルを並べるだけ(期間の選択は効かないので、時間軸の min などは要らない)
+function renderCostChart() {
+  const days = state.costs.days;
+  const zero = zeroCostServices();
+  const services = state.costs.services.filter((name) => !zero.includes(name));
+  // サービスは期間合計の多い順に並んでいるので、多い順に系列の色を割り当てる
+  const colors = ["--series-1", "--series-2", "--series-3", "--series-4"];
+
+  if (charts.costs) {
+    charts.costs.destroy();
+  }
+
+  charts.costs = new Chart(el.costCanvas, {
+    type: "bar",
+    data: {
+      labels: days.map((d) => shortDate(d.date)),
+      datasets: services.map((name, i) => ({
+        label: name,
+        data: days.map((d) => d.services[name] || 0),
+        backgroundColor: cssVar(colors[i] || "--series-other"),
+        maxBarThickness: 24,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          align: "start",
+          labels: { color: cssVar("--text-secondary"), boxWidth: 12, boxHeight: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => `${formatDate(`${days[items[0].dataIndex].date}T00:00:00Z`)} の費用`,
+            label: (item) => `${item.dataset.label}: ${formatCost(item.parsed.y)}`,
+            footer: (items) => `合計: ${formatCost(days[items[0].dataIndex].total)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { color: cssVar("--text-muted"), maxRotation: 0, autoSkip: true },
+          border: { color: cssVar("--grid") },
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          grid: { color: cssVar("--grid") },
+          ticks: { color: cssVar("--text-muted"), callback: (value) => formatCost(value) },
+          border: { display: false },
+        },
+      },
+    },
+  });
+}
+
+// 運用費用の表(新しい日が上)。内訳は 0 円でないサービスだけを並べる
+function renderCostTable() {
+  clearTable(el.costTableBody);
+  const days = state.costs.days;
+  if (days.length === 0) {
+    appendEmptyRow(el.costTableBody, 3, "データがまだありません");
+    return;
+  }
+  for (const d of [...days].reverse()) {
+    const tr = document.createElement("tr");
+    tr.appendChild(makeCell(formatDate(`${d.date}T00:00:00Z`)));
+    tr.appendChild(makeCell(formatCost(d.total), "num"));
+    const parts = state.costs.services
+      .filter((name) => d.services[name])
+      .map((name) => `${name} ${formatCost(d.services[name])}`);
+    tr.appendChild(makeCell(parts.join(" / ") || "–"));
+    el.costTableBody.appendChild(tr);
+  }
+}
+
 // ============================================================
 // 起動処理とイベント
 // ============================================================
@@ -974,6 +1131,9 @@ function rerenderAllCharts() {
   if (state.summary) {
     renderDownloadsChart();
     renderVersionsChart();
+  }
+  if (state.costs && state.costs.days.length > 0) {
+    renderCostChart();
   }
 }
 
@@ -1038,6 +1198,7 @@ async function init() {
   // 最初の描画
   updateRangeFrom();
   loadFetchLogs();
+  loadCosts();
   if (requestedMod) {
     // URL で指定された mod は、一覧を待たずに同時に取りに行く
     state.modId = requestedMod.mod_id;

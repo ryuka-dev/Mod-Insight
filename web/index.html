@@ -14,7 +14,7 @@
       3. 全 mod の状況   合計の数字、合計の推移、mod ごとの一覧表(行クリックで 4 の mod が切り替わる)
       4. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均
       5. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別、バージョン履歴
-      6. 運用状況        取得ジョブの実行記録(システム全体の記録なので、上のどの選択も効かない)
+      6. 運用状況        運用費用と取得ジョブの実行記録(システム全体の記録なので、上のどの選択も効かない)
     データはすべて app.js が API から取ってきて、この HTML の空の要素に流し込む。
   -->
 
@@ -187,6 +187,42 @@
     <div class="section-head">
       <h2 class="section-title">運用状況</h2>
     </div>
+    <section class="card" aria-label="運用費用">
+      <h2 class="card-title">運用費用</h2>
+      <p class="card-note">このダッシュボード自体を動かしている Azure の費用(リソースグループ全体の実績、Azure Cost Management から毎日取得)。日別の値は締めた後もしばらく増えるので、確定した日までを表示しています。<span id="costZeroNote"></span></p>
+      <div class="overview-tiles">
+        <div class="stat-tile">
+          <span class="stat-label">1 日あたり(直近 7 日の平均)</span>
+          <span class="stat-value" id="costAverage">–</span>
+          <span class="stat-sub" id="costAverageSub"></span>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-label">30 日に換算</span>
+          <span class="stat-value" id="costMonthly">–</span>
+          <span class="stat-sub">1 日あたりの平均 × 30</span>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-label">今月の合計</span>
+          <span class="stat-value" id="costMonthTotal">–</span>
+          <span class="stat-sub" id="costMonthTotalSub"></span>
+        </div>
+      </div>
+      <div class="chart-wrap chart-wrap-small">
+        <canvas id="costChart" role="img" aria-label="日別の運用費用をサービスごとに積み上げた棒グラフ"></canvas>
+      </div>
+      <details class="table-details">
+        <summary>データを表で見る</summary>
+        <div class="table-scroll">
+          <table id="costTable">
+            <thead>
+              <tr><th>日付</th><th class="num">合計</th><th>内訳</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
     <section class="card">
       <h2 class="card-title">取得ジョブの実行記録</h2>
       <p class="card-note">毎日 0:00(日本時間)に自動実行。配布サイトごとに 1 行。両方の配布サイトの直近 10 件を表示(上の選択には関係しません)。</p>
