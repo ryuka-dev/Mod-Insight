@@ -13,6 +13,7 @@
 //        GET /api/mods/{id}/snapshots          (時系列。期間は ?from= で絞る)
 //        GET /api/mods/{id}/versions           (バージョン履歴)
 //        GET /api/mods/{id}/version-snapshots  (バージョンごとの時系列)
+//        GET /api/mods/{id}/releases           (公開の前後。期間に関係なく全期間から計算される)
 //      を同時に取りに行き、揃ったら画面を描き直す
 //   4. GET /api/fetch/logs と GET /api/costs は mod に関係ないので起動時に 1 回だけ取る
 //
@@ -57,6 +58,7 @@ const state = {
   snapshots: [],         // snapshots API の結果(古い順)
   versions: [],          // versions API の結果(新しい順)
   versionSnapshots: [],  // version-snapshots API の結果(古い順)
+  releases: [],          // releases API の結果(新しい公開が先)
   costs: null,           // costs API の結果(取れなければ null)
 };
 
@@ -66,6 +68,7 @@ const charts = {
   daily: null,      // 全 mod の日ごとの増加
   downloads: null,  // 選択中 mod のダウンロード数推移
   versions: null,   // 選択中 mod のバージョン別積み上げ
+  releaseShare: null,  // 選択中 mod の公開後の新しい版の割合
   costs: null,      // 運用費用のサービス別積み上げ
 };
 
@@ -108,6 +111,8 @@ const el = {
   versionSnapshotTableHead: document.querySelector("#versionSnapshotTable thead"),
   versionSnapshotTableBody: document.querySelector("#versionSnapshotTable tbody"),
   versionTableBody: document.querySelector("#versionTable tbody"),
+  releaseTableBody: document.querySelector("#releaseTable tbody"),
+  releaseShareCanvas: document.getElementById("releaseShareChart"),
   // 運用状況
   costAverage: document.getElementById("costAverage"),
   costAverageSub: document.getElementById("costAverageSub"),
@@ -394,16 +399,18 @@ async function loadMod() {
 
   try {
     const query = rangeQuery();
-    const [summary, snapshots, versions, versionSnapshots] = await Promise.all([
+    const [summary, snapshots, versions, versionSnapshots, releases] = await Promise.all([
       fetchJson(`/mods/${state.modId}/summary`),
       fetchJson(`/mods/${state.modId}/snapshots${query}`),
       fetchJson(`/mods/${state.modId}/versions`),
       fetchJson(`/mods/${state.modId}/version-snapshots${query}`),
+      fetchJson(`/mods/${state.modId}/releases`),
     ]);
     state.summary = summary;
     state.snapshots = snapshots;
     state.versions = versions;
     state.versionSnapshots = versionSnapshots;
+    state.releases = releases;
 
     renderDetailTitle();
     renderStats();
@@ -411,6 +418,8 @@ async function loadMod() {
     renderSnapshotTable();
     renderVersionsChart();
     renderVersionSnapshotTable();
+    renderReleaseTable();
+    renderReleaseShareChart();
     renderVersionTable();
     highlightSelectedOverviewRow();
   } catch (err) {
@@ -952,6 +961,121 @@ function renderVersionSnapshotTable() {
 }
 
 // バージョン履歴の表
+// 公開前後の 1 日あたりの平均。7 日そろっていなければ日数を添える("7.7(6 日)")
+function formatWindowAverage(window) {
+  if (window.average === null) {
+    return "–";
+  }
+  const days = window.days < 7 ? `(${window.days} 日)` : "";
+  return `${formatNumber(window.average)}${days}`;
+}
+
+// 公開から n 日目の新しい版の割合("84.4%")。その日が無いか、割合が出せない日は "–"
+function formatShareOnDay(release, day) {
+  const point = release.share.find((s) => s.day === day);
+  return point && point.share !== null ? `${point.share}%` : "–";
+}
+
+// 公開の前後の表(新しい公開が上)
+function renderReleaseTable() {
+  clearTable(el.releaseTableBody);
+  if (state.releases.length === 0) {
+    appendEmptyRow(el.releaseTableBody, 6, "記録を始めてから公開されたバージョンはまだありません");
+    return;
+  }
+  for (const release of state.releases) {
+    const tr = document.createElement("tr");
+    tr.appendChild(makeCell(`v${release.version_number}`));
+    tr.appendChild(makeCell(formatDate(`${release.first_day}T00:00:00Z`)));
+    tr.appendChild(makeCell(formatWindowAverage(release.before), "num"));
+    tr.appendChild(makeCell(formatWindowAverage(release.after), "num"));
+    tr.appendChild(makeCell(formatSigned(release.change), "num"));
+    tr.appendChild(makeCell(`${formatShareOnDay(release, 1)} / ${formatShareOnDay(release, 7)}`, "num"));
+    el.releaseTableBody.appendChild(tr);
+  }
+}
+
+// 公開から何日目かを横軸にした、新しい版の割合の折れ線(最新 4 回の公開を重ねて比べる)
+function renderReleaseShareChart() {
+  if (charts.releaseShare) {
+    charts.releaseShare.destroy();
+    charts.releaseShare = null;
+  }
+  // 比べられる公開が無ければ、空のグラフの枠だけが残らないように隠す
+  el.releaseShareCanvas.parentElement.hidden = state.releases.length === 0;
+  if (state.releases.length === 0) {
+    return;
+  }
+
+  const releases = state.releases.slice(0, 4);
+  const maxDay = Math.max(...releases.flatMap((r) => r.share.map((s) => s.day)));
+  const labels = [];
+  for (let day = 1; day <= maxDay; day++) {
+    labels.push(`${day} 日目`);
+  }
+  const colors = ["--series-1", "--series-2", "--series-3", "--series-4"];
+
+  charts.releaseShare = new Chart(el.releaseShareCanvas, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: releases.map((release, i) => ({
+        label: `v${release.version_number}`,
+        // 日の抜けや割合が出せない日は null(線を切る)
+        data: labels.map((_, index) => {
+          const point = release.share.find((s) => s.day === index + 1);
+          return point ? point.share : null;
+        }),
+        release: release,  // ツールチップで件数を出すために持たせておく
+        borderColor: cssVar(colors[i]),
+        backgroundColor: cssVar(colors[i]),
+        borderWidth: 2,
+        pointRadius: 3,
+        spanGaps: false,
+        tension: 0,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          align: "start",
+          labels: { color: cssVar("--text-secondary"), boxWidth: 12, boxHeight: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => `公開 ${items[0].dataIndex + 1} 日目`,
+            label: (item) => {
+              const point = item.dataset.release.share.find((s) => s.day === item.dataIndex + 1);
+              return `${item.dataset.label}: ${point.share}%(${formatNumber(point.new_version)} / ${formatNumber(point.total)} 件)`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: cssVar("--text-muted"), maxRotation: 0, autoSkip: true },
+          border: { color: cssVar("--grid") },
+        },
+        y: {
+          // CDN の揺れで割合が 100% を超える日や 0% を下回る日もあるので、固定せず目安にとどめる
+          suggestedMin: 0,
+          suggestedMax: 100,
+          grid: { color: cssVar("--grid") },
+          ticks: { color: cssVar("--text-muted"), callback: (value) => `${value}%` },
+          border: { display: false },
+        },
+      },
+    },
+  });
+}
+
 function renderVersionTable() {
   clearTable(el.versionTableBody);
   if (state.versions.length === 0) {
@@ -1132,6 +1256,7 @@ function rerenderAllCharts() {
   if (state.summary) {
     renderDownloadsChart();
     renderVersionsChart();
+    renderReleaseShareChart();
   }
   if (state.costs && state.costs.days.length > 0) {
     renderCostChart();

@@ -111,4 +111,5 @@ function buildDailyIncrease(history, from, platform) {
   return daily.filter((day) => day.date >= fromKey);
 }
 
-module.exports = { buildDailyIncrease };
+// dayKey は releaseImpact.js も使う(「日」の区切りをこのファイルの定義にそろえるため)
+module.exports = { buildDailyIncrease, dayKey };

@@ -13,7 +13,7 @@
       2. フィルター行    配布サイトと期間。全 mod の一覧と、下の mod の詳細の両方に効く
       3. 全 mod の状況   合計の数字、合計の推移、mod ごとの一覧表(行クリックで 4 の mod が切り替わる)
       4. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均
-      5. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別、バージョン履歴
+      5. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別、公開の前後、バージョン履歴
       6. 運用状況        運用費用と取得ジョブの実行記録(システム全体の記録なので、上のどの選択も効かない)
     データはすべて app.js が API から取ってきて、この HTML の空の要素に流し込む。
   -->
@@ -155,7 +155,7 @@
 
     <section class="card">
       <h2 class="card-title">バージョン別ダウンロード数</h2>
-      <p class="card-note">新しいバージョンが公開されたあと、利用者がどれくらい移行したかを見るための積み上げグラフ。最新 4 バージョンを個別に、それより古いものは「その他」にまとめています。</p>
+      <p class="card-note">新しいバージョンが公開されたあと、ダウンロードがどの版に移っていったかを見るための積み上げグラフ。最新 4 バージョンを個別に、それより古いものは「その他」にまとめています。</p>
       <div class="chart-wrap">
         <canvas id="versionsChart" role="img" aria-label="バージョン別ダウンロード数の積み上げグラフ"></canvas>
       </div>
@@ -168,6 +168,22 @@
           </table>
         </div>
       </details>
+    </section>
+
+    <section class="card" aria-label="公開の前後">
+      <h2 class="card-title">公開の前後</h2>
+      <p class="card-note">新しいバージョンを公開した前後 7 日の、1 日あたりのダウンロード(全バージョンの合計)と、その日のダウンロードのうち新しい版が占める割合。分かるのはダウンロード数だけで、何人がどの版を使っているかではありません。公開 1 日目は新しい版が初めて記録に現れた日で、記録を始める前に公開された版は比べていません。次の版が出た日からは数えません。7 日そろわない時は、ある日数だけで平均しています(括弧内が日数)。</p>
+      <div class="table-scroll">
+        <table id="releaseTable">
+          <thead>
+            <tr><th>バージョン</th><th>公開 1 日目</th><th class="num">公開前(1 日あたり)</th><th class="num">公開後(1 日あたり)</th><th class="num">差</th><th class="num">新しい版の割合(1 日目 / 7 日目)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="chart-wrap chart-wrap-small">
+        <canvas id="releaseShareChart" role="img" aria-label="公開からの日数ごとの、新しい版が占める割合の折れ線グラフ"></canvas>
+      </div>
     </section>
 
     <section class="card">
