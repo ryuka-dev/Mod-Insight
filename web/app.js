@@ -673,7 +673,8 @@ function renderDailyChart() {
         tooltip: {
           itemSort: (a, b) => a.datasetIndex - b.datasetIndex,
           callbacks: {
-            title: (items) => `${formatDate(new Date(items[0].parsed.x).toISOString())} の増加`,
+            // 棒の時刻(日本時間の 0:00 = UTC の前日 15:00)から日付を逆算すると 1 日ずれるので、API の date をそのまま使う
+            title: (items) => `${formatDate(`${daily[items[0].dataIndex].date}T00:00:00Z`)} の増加`,
             label: (item) => `${item.dataset.label}: ${item.parsed.y === null ? "–" : formatSigned(item.parsed.y)}`,
           },
         },
