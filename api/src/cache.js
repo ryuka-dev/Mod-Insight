@@ -30,6 +30,7 @@
 //   mods/{modId}/version-snapshots.json  GET /api/mods/{modId}/version-snapshots(全期間)
 //   overview.json                        GET /api/overview の材料(全期間・全プラットフォーム)
 //   fetch-logs.json                      GET /api/fetch/logs(新しい順に最大 200 件)
+//   costs.json                           GET /api/costs(costs.js が save() で書く。DB から作らない唯一の Blob)
 //   from / to / platform / limit の絞り込みは Blob を分けず、読んだ後に JS で行う。
 //
 // 方針: このモジュールの関数は例外を外に投げない。
@@ -124,6 +125,26 @@ async function write(container, name, runAt, data) {
   await container.getBlockBlobClient(name).upload(body, Buffer.byteLength(body), {
     blobHTTPHeaders: { blobContentType: "application/json; charset=utf-8" },
   });
+}
+
+// DB 以外から作る Blob を 1 つ書く(上書き)。今は costs.json だけ
+// 入力: name(Blob の名前)、runAt(取得ジョブの実行日時、ISO 文字列)、data、logger
+// 出力: 書けたら true、未設定か失敗なら false。例外は投げない
+async function save(name, runAt, data, logger) {
+  const container = getContainer();
+  if (!container) {
+    logger.log(`CACHE_STORAGE_CONNECTION_STRING が未設定のため、${name} は書きません`);
+    return false;
+  }
+  try {
+    await container.createIfNotExists();
+    await write(container, name, runAt, data);
+    return true;
+  } catch (err) {
+    // 文言はアラート(docs/alerts/alert-fetch-job-health.json)が探している「キャッシュの更新に失敗」に合わせる
+    logger.error(`キャッシュの更新に失敗しました(${name}):`, err);
+    return false;
+  }
 }
 
 // すべての Blob を DB の内容から作り直す。取得ジョブの最後に呼ぶ
@@ -228,4 +249,4 @@ function buildOverview(data, from, platform) {
   };
 }
 
-module.exports = { read, readForMod, rebuildAll, buildOverview, FETCH_LOGS_CACHE_LIMIT };
+module.exports = { read, readForMod, save, rebuildAll, buildOverview, FETCH_LOGS_CACHE_LIMIT };
