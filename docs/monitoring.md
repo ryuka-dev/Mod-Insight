@@ -98,11 +98,11 @@ exceptions
 
 | 名前 | 種類 | 条件 | 確認間隔 | 意図 |
 |---|---|---|---|---|
-| `alert-fetch-job-health` | ログ検索 | 下の 3 つの問題のどれかがある(問題ごとに別々に発火・自動解決する) | 1 時間ごと | 取得ジョブまわりの異常をまとめて検知する |
+| `alert-fetch-job-health` | ログ検索 | 下の 4 つの問題のどれかがある(問題ごとに別々に発火・自動解決する) | 1 時間ごと | 取得ジョブまわりの異常をまとめて検知する |
 | `alert-api-failures` | メトリック | 5 分間に失敗したリクエストが 5 件を超える | 5 分ごと | REST API の障害(DB に接続できない等)を検知する |
 | `alert-sql-free-limit-low` | メトリック | Azure SQL の無料枠の残量(`free_amount_remaining`)の 1 時間の最小値が 20,000 vCore 秒を下回る | 1 時間ごと | 無料枠(月 100,000 vCore 秒)を使い切ると `freeLimitExhaustionBehavior = AutoPause` により**その月の残りずっと DB が止まる**。開発で DB を長く起こした日が続くと現実に起こるため(2026-09-15 は 1 日で 22,000。`docs/ops-log.md` 1.5 節)、残り 20% で先に知らせる。対象リソースは Application Insights ではなく SQL Database 本体 |
 
-### `alert-fetch-job-health` が見ている 3 つの問題
+### `alert-fetch-job-health` が見ている 4 つの問題
 
 クエリは問題 1 つにつき 1 行(`problem` 列と `detail` 列)を返し、行があれば発火する。`problem` を次元にしているので、
 通知には問題の種類が出て、それぞれ独立に発火・解決する。
@@ -112,8 +112,9 @@ exceptions
 | `fetch_missing` | 直近 48 時間に `FetchThunderstoreDataTimer` の成功した実行が 1 件もない | 毎日 15:00 UTC の取得が動いていない(タイマーの停止、アプリの停止、実行エラー)ことを検知する。24 時間ちょうどだと実行タイミングのわずかなずれで誤検知し得るため 48 時間にしている(検知は最大で 1 日遅れる) |
 | `fetch_failed` | 直近 1 時間のログに `status=failed` を含む取得ジョブの終了ログがある | 取得ジョブ自体は最後まで動いたが、API 取得か DB 保存に失敗した回を検知する(ジョブは例外を握りつぶして `fetch_logs` に記録する設計なので、`requests` の失敗では捕まらない) |
 | `cache_update_failed` | 直近 1 時間のログに `キャッシュの更新に失敗しました` がある | 取得ジョブが DB には保存できたのに Blob キャッシュの作り直しに失敗した回を検知する。`fetch_logs` は success のままなので `fetch_failed` では捕まらず、放置するとダッシュボードが前日のデータを出し続ける(`docs/ops-log.md` 1.8 節) |
+| `cost_fetch_failed` | 直近 1 時間のログに `運用費用の取得に失敗しました` がある | 取得ジョブの最後に行う運用費用の取得(Cost Management)に失敗した回を検知する。mod のデータには影響しないが、放置するとダッシュボードの運用費用が古いまま止まる。マネージド ID のロールが外れた時などに起こる |
 
-ルールの窓は 48 時間(`fetch_missing` に合わせる)で、残り 2 つはクエリの中で `ago(1h)` に絞っている。
+ルールの窓は 48 時間(`fetch_missing` に合わせる)で、残り 3 つはクエリの中で `ago(1h)` に絞っている。
 こうしないと、1 回の失敗が 48 時間ずっと「発火中」になり続ける。
 
 ```kusto
@@ -130,12 +131,16 @@ let jobFailed = jobLogs
 let cacheFailed = jobLogs
     | where timestamp > ago(1h) and message contains 'キャッシュの更新に失敗'
     | project problem = 'cache_update_failed', detail = message;
-union notRun, jobFailed, cacheFailed
+let costFailed = jobLogs
+    | where timestamp > ago(1h) and message contains '運用費用の取得に失敗'
+    | project problem = 'cost_fetch_failed', detail = message;
+union notRun, jobFailed, cacheFailed, costFailed
 ```
 
 注意: KQL では `missing` を `let` の変数名に使えない(`let missing = ...` は `BadArgumentError` になる)。
 
 以前は 3 つを別々のログ検索アラートにしていたが、2026-09-24 に 1 本にまとめた(`docs/ops-log.md` 2 章)。
+`cost_fetch_failed` は運用費用の表示を加えた時(2026-10-07)に、新しいルールを作らずこのクエリに足した。
 
 ### 費用
 

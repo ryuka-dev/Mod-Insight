@@ -2,7 +2,7 @@
   "location": "eastasia",
   "properties": {
     "displayName": "alert-fetch-job-health",
-    "description": "Fetch job health: fetch_missing = no successful scheduled fetch in 48h; fetch_failed = a fetch finished with status=failed in the last hour; cache_update_failed = Blob cache rebuild failed in the last hour",
+    "description": "Fetch job health: fetch_missing = no successful scheduled fetch in 48h; fetch_failed = a fetch finished with status=failed in the last hour; cache_update_failed = Blob cache rebuild failed in the last hour; cost_fetch_failed = operating cost fetch from Cost Management failed in the last hour",
     "severity": 2,
     "enabled": true,
     "scopes": [
@@ -13,7 +13,7 @@
     "criteria": {
       "allOf": [
         {
-          "query": "let jobLogs = traces\n    | where customDimensions.Category in ('Function.FetchThunderstoreDataTimer.User', 'Function.RunFetch.User');\nlet lastSuccess = toscalar(requests\n    | where name == 'FetchThunderstoreDataTimer' and success == 'True'\n    | summarize max(timestamp));\nlet notRun = print problem = 'fetch_missing', detail = 'no successful scheduled fetch in the last 48 hours'\n    | where isnull(lastSuccess);\nlet jobFailed = jobLogs\n    | where timestamp > ago(1h) and message contains 'status=failed'\n    | project problem = 'fetch_failed', detail = message;\nlet cacheFailed = jobLogs\n    | where timestamp > ago(1h) and message contains 'キャッシュの更新に失敗'\n    | project problem = 'cache_update_failed', detail = message;\nunion notRun, jobFailed, cacheFailed",
+          "query": "let jobLogs = traces\n    | where customDimensions.Category in ('Function.FetchThunderstoreDataTimer.User', 'Function.RunFetch.User');\nlet lastSuccess = toscalar(requests\n    | where name == 'FetchThunderstoreDataTimer' and success == 'True'\n    | summarize max(timestamp));\nlet notRun = print problem = 'fetch_missing', detail = 'no successful scheduled fetch in the last 48 hours'\n    | where isnull(lastSuccess);\nlet jobFailed = jobLogs\n    | where timestamp > ago(1h) and message contains 'status=failed'\n    | project problem = 'fetch_failed', detail = message;\nlet cacheFailed = jobLogs\n    | where timestamp > ago(1h) and message contains 'キャッシュの更新に失敗'\n    | project problem = 'cache_update_failed', detail = message;\nlet costFailed = jobLogs\n    | where timestamp > ago(1h) and message contains '運用費用の取得に失敗'\n    | project problem = 'cost_fetch_failed', detail = message;\nunion notRun, jobFailed, cacheFailed, costFailed",
           "timeAggregation": "Count",
           "dimensions": [
             {
