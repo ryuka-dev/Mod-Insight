@@ -1,22 +1,22 @@
-# 依赖
+# 依存パッケージ
 node_modules/
 
-# 本地环境变量与密钥(绝不提交)
+# ローカルの環境変数と秘密情報(絶対にコミットしない)
 local.settings.json
 .env
 .env.*
 
-# Azure Functions 本地运行产物
+# Azure Functions をローカルで動かした時の生成物
 bin/
 obj/
 .python_packages/
 
-# 编辑器 / 系统文件
+# エディター / OS が作るファイル
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# 日志
+# ログ
 *.log
 npm-debug.log*
