@@ -152,6 +152,10 @@ union notRun, jobFailed, cacheFailed, costFailed
 | メトリックアラート | 0 円 | この 2 本の範囲では課金されていない |
 
 ログ検索アラートを増やす時は、既存の `alert-fetch-job-health` のクエリに `problem` を 1 つ足す形にする(本数を増やさない)。
+`cost_fetch_failed` もこの形で足したので、監視の費用は変わっていない。
+
+システム全体の日別・サービス別の費用は、ダッシュボードの「運用状況」で毎日確認できる
+(取得ジョブの最後に Cost Management から取得。経緯と統合後の実績は `docs/ops-log.md` 2.7 節)。
 
 ### アラートを作ったコマンド
 
