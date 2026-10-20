@@ -127,6 +127,7 @@ the column heading on screen changes with the site: "Rating" (評価) or "Endors
 **All rows from one fetch get the same timestamp**
 Every row saved by one fetch job run gets the same `captured_at`.
 Grouping by timestamp and summing is then enough to get cross-site totals per fetch run (the timestamps do not spread out even if the fetch takes a few minutes).
+Runs in which some mod failed to save (`fetch_logs` status `failed`) are left out of the totals line, because the missing mod makes the total smaller and looks like a drop that did not happen (on 2026-10-19 one mod failed to save and that run's total went from 41,780 to 39,908). When filtered by site, only that site's failures count.
 
 **Daily increase is the sum of each mod's change from the previous day**
 Using the difference between per-run totals as the "increase" breaks the numbers in two ways.
