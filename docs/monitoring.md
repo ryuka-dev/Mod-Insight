@@ -109,7 +109,7 @@ exceptions
 
 | `problem` | 条件 | 意図 |
 |---|---|---|
-| `fetch_missing` | 直近 48 時間に `FetchThunderstoreDataTimer` の成功した実行が 1 件もない | 毎日 15:00 UTC の取得が動いていない(タイマーの停止、アプリの停止、実行エラー)ことを検知する。24 時間ちょうどだと実行タイミングのわずかなずれで誤検知し得るため 48 時間にしている(検知は最大で 1 日遅れる) |
+| `fetch_missing` | 直近 48 時間に、定時の取得ジョブ(`FetchThunderstoreDataTimer`)の終了ログ(`取得ジョブ終了: platform=...`)が 1 件もない | 毎日 15:00 UTC の取得が動いていない(タイマーの停止、アプリの停止、実行エラー)ことを検知する。24 時間ちょうどだと実行タイミングのわずかなずれで誤検知し得るため 48 時間にしている(検知は最大で 1 日遅れる)。以前は `requests` の成功行で見ていたが、取得ジョブの後ろの段階(運用費用の取得)でテレメトリが途切れた日は `requests` に行が残らず、取得は成功しているのに発火した(2026-10-08 / 10-12 / 10-15。`docs/ops-log.md` 3 章)。終了ログは DB への保存の直後に出るので、後ろの段階に左右されない |
 | `fetch_failed` | 直近 1 時間のログに `status=failed` を含む取得ジョブの終了ログがある | 取得ジョブ自体は最後まで動いたが、API 取得か DB 保存に失敗した回を検知する(ジョブは例外を握りつぶして `fetch_logs` に記録する設計なので、`requests` の失敗では捕まらない) |
 | `cache_update_failed` | 直近 1 時間のログに `キャッシュの更新に失敗しました` がある | 取得ジョブが DB には保存できたのに Blob キャッシュの作り直しに失敗した回を検知する。`fetch_logs` は success のままなので `fetch_failed` では捕まらず、放置するとダッシュボードが前日のデータを出し続ける(`docs/ops-log.md` 1.8 節) |
 | `cost_fetch_failed` | 直近 1 時間のログに `運用費用の取得に失敗しました` がある | 取得ジョブの最後に行う運用費用の取得(Cost Management)に失敗した回を検知する。mod のデータには影響しないが、放置するとダッシュボードの運用費用が古いまま止まる。マネージド ID のロールが外れた時などに起こる |
@@ -120,11 +120,11 @@ exceptions
 ```kusto
 let jobLogs = traces
     | where customDimensions.Category in ('Function.FetchThunderstoreDataTimer.User', 'Function.RunFetch.User');
-let lastSuccess = toscalar(requests
-    | where name == 'FetchThunderstoreDataTimer' and success == 'True'
+let lastEnd = toscalar(traces
+    | where customDimensions.Category == 'Function.FetchThunderstoreDataTimer.User' and message startswith '取得ジョブ終了'
     | summarize max(timestamp));
-let notRun = print problem = 'fetch_missing', detail = 'no successful scheduled fetch in the last 48 hours'
-    | where isnull(lastSuccess);
+let notRun = print problem = 'fetch_missing', detail = 'no scheduled fetch finished in the last 48 hours'
+    | where isnull(lastEnd);
 let jobFailed = jobLogs
     | where timestamp > ago(1h) and message contains 'status=failed'
     | project problem = 'fetch_failed', detail = message;
