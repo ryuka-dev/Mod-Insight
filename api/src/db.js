@@ -38,6 +38,27 @@ const sql = require("mssql");
 // 接続に失敗した場合は null に戻して、次回の呼び出しで再接続を試みる。
 let poolPromise = null;
 
+// DB が一時停止から再開する間に返ってくる一時的なエラー(40613 など)を、何回・何秒おきに再試行するか。
+// 再試行は tedious(mssql の中のドライバー)が自分で行い、対象のエラー番号も tedious が決めている。
+// 既定値は 3 回・0.5 秒おきで、約 1 分かかる再開を待てない(2026-10-19 に 1 件の保存が失敗した)。
+// 10 秒おきに 6 回なら、最初の失敗から 60 秒ほど待てる。
+const TRANSIENT_RETRY_COUNT = 6;
+const TRANSIENT_RETRY_INTERVAL_MS = 10 * 1000;
+
+// 接続文字列から接続プールの設定を作る
+// 入力: 接続文字列
+// 出力: sql.ConnectionPool に渡す設定オブジェクト(接続文字列の内容 + 一時的なエラーの再試行の設定)
+// 接続文字列の解釈は mssql に任せる(形式をここで決め打ちしない)。解釈できなければ mssql が例外を投げる。
+function buildPoolConfig(connectionString) {
+  const config = sql.ConnectionPool.parseConnectionString(connectionString);
+  config.options = {
+    ...config.options,
+    maxRetriesOnTransientErrors: TRANSIENT_RETRY_COUNT,
+    connectionRetryInterval: TRANSIENT_RETRY_INTERVAL_MS,
+  };
+  return config;
+}
+
 // 接続エラーを「何が原因か」が分かる日本語メッセージに変換する
 // 入力: mssql / tedious が投げたエラー
 // 出力: 原因の分類と元のエラー内容を含む文字列(接続文字列やパスワードは含めない)
@@ -92,8 +113,7 @@ function getPool() {
     }
 
     try {
-      // 接続文字列の解釈は mssql に任せる(形式をここで決め打ちしない)
-      const pool = new sql.ConnectionPool(connectionString);
+      const pool = new sql.ConnectionPool(buildPoolConfig(connectionString));
       await pool.connect();
       console.log("Azure SQL Database に接続しました");
       return pool;
@@ -509,4 +529,6 @@ module.exports = {
   getOverview,
   listSnapshotHistory,
   listFetchLogs,
+  // テスト用(DB には接続しない)
+  buildPoolConfig,
 };
