@@ -78,13 +78,20 @@ function describeConnectionError(err) {
     return `【SQL Server ファイアウォール / ネットワークの問題】サーバーに到達できません(code=${code})。サーバー名・ポート(1433)・ファイアウォール設定を確認してください。詳細: ${message}`;
   }
 
+  // データベースが一時的に使えない(一時停止からの再開中など。エラー番号 40613)
+  // tedious はログイン中にサーバーが返したエラーをすべて code=ELOGIN にし、番号も持たせないので、
+  // 下のログイン失敗より先にメッセージで判定する(2026-10-19 に認証の問題と誤って記録された)
+  if (number === 40613 || /is not currently available/i.test(message)) {
+    return `【データベース本体の問題(一時的)】データベースが一時的に使えません。一時停止からの再開中なら、時間をおけば接続できます。詳細: ${message}`;
+  }
+
   // ログイン失敗(ユーザー名・パスワード違い、または認証方式の不一致)
   if (code === "ELOGIN" || number === 18456) {
     return `【接続文字列 / 認証の問題】ログインに失敗しました。ユーザー名・パスワード・認証方式(User ID / Password / Authentication=...)を確認してください。詳細: ${message}`;
   }
 
-  // データベースが開けない(名前違い、一時停止中、存在しない)
-  if (number === 4060 || number === 40613 || /cannot open database/i.test(message)) {
+  // データベースが開けない(名前違い、存在しない)
+  if (number === 4060 || /cannot open database/i.test(message)) {
     return `【データベース本体の問題】データベースを開けません(number=${number})。Database= の名前が正しいか、データベースが一時停止・削除されていないか確認してください。詳細: ${message}`;
   }
 
@@ -531,4 +538,5 @@ module.exports = {
   listFetchLogs,
   // テスト用(DB には接続しない)
   buildPoolConfig,
+  describeConnectionError,
 };
