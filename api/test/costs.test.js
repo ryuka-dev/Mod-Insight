@@ -1,7 +1,7 @@
 // ============================================================
 // costs.test.js
 //
-// costs.js の queryPeriod と toDailyCosts のテスト(Azure には接続しない)。
+// costs.js の queryPeriod・toDailyCosts・withTimeout のテスト(Azure には接続しない)。
 // 確かめたいこと:
 //   - 取得期間が「取得ジョブの日付の 2 日前」で終わり、90 日分になること
 //   - Query API の行(UsageDate は 20260924 のような数値)が日付ごと・サービスごとにまとまること
@@ -9,11 +9,12 @@
 //   - 期間外の行(集計中の日)は捨てること
 //   - 0 円のサービスも残し、行の無い日は作らないこと
 //   - 合計は丸める前の値から出すこと
+//   - 待つ上限(withTimeout)を超えたら指定したメッセージで失敗すること
 // ============================================================
 
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
-const { queryPeriod, toDailyCosts } = require("../src/costs");
+const { queryPeriod, toDailyCosts, withTimeout } = require("../src/costs");
 
 // 実際の応答と同じ列の並び
 const COLUMNS = [{ name: "Cost" }, { name: "UsageDate" }, { name: "ServiceName" }, { name: "Currency" }];
@@ -93,5 +94,20 @@ describe("toDailyCosts", () => {
 
   test("必要な列が無ければ例外を投げる", () => {
     assert.throws(() => toDailyCosts([{ name: "Cost" }], [], period), /UsageDate/);
+  });
+});
+
+describe("withTimeout", () => {
+  test("時間内に終われば結果をそのまま返す", async () => {
+    assert.equal(await withTimeout(Promise.resolve("ok"), 1000, "時間切れ"), "ok");
+  });
+
+  test("時間内に終わらなければ指定したメッセージで失敗する", async () => {
+    const never = new Promise(() => {});
+    await assert.rejects(withTimeout(never, 10, "時間切れ"), { message: "時間切れ" });
+  });
+
+  test("元の処理の失敗はそのまま返す", async () => {
+    await assert.rejects(withTimeout(Promise.reject(new Error("元のエラー")), 1000, "時間切れ"), { message: "元のエラー" });
   });
 });

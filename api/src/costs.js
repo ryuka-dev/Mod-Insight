@@ -27,6 +27,7 @@
 //
 // 方針: refreshCosts は例外を外に投げない。失敗したらログを出して前回の costs.json を残す。
 //   費用の表示は mod データの取得とは関係ないので、ここで取得ジョブを止めない。
+//   トークン取得と Query API の呼び出しには待つ上限をつけ、返ってこない時も失敗としてログに残す。
 // ============================================================
 
 const { DefaultAzureCredential } = require("@azure/identity");
@@ -44,6 +45,12 @@ const API_VERSION = "2023-11-01";
 
 // 429(呼び出し回数の制限)のときに何回まで試すか
 const MAX_ATTEMPTS = 3;
+
+// トークン取得と Query API の 1 回の呼び出しを、それぞれ何秒まで待つか。
+// 普段はどちらも数秒で終わる。返ってこない時に待ち続けず、失敗としてログに残すための上限
+// (2026-10 に、この段階の途中でログが途切れて結果が分からない日が続いた)
+const TOKEN_TIMEOUT_MS = 30 * 1000;
+const REQUEST_TIMEOUT_MS = 60 * 1000;
 
 // トークンを取る道具。最初の呼び出しで作り、以降は使い回す
 let credential = null;
@@ -135,16 +142,41 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// promise が ms 以内に終わらなければ、message の例外で失敗させる
+// 入力: promise、ms(待つ上限)、message(時間切れの時の例外メッセージ)
+// 出力: promise の結果(時間切れなら例外)
+// 元の処理は止められないが、待つのはやめて呼び出し側に失敗を返す。
+async function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Query API を 1 回呼ぶ(429 なら待ってやり直す)
 // 入力: url、body(JSON にするもの)、token(アクセストークン)
 // 出力: 応答の properties({ columns, rows, nextLink })
 async function postQuery(url, body, token) {
   for (let attempt = 1; ; attempt++) {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (err.name === "TimeoutError") {
+        throw new Error(`Cost Management Query API が ${REQUEST_TIMEOUT_MS / 1000} 秒以内に応答しませんでした`);
+      }
+      throw err;
+    }
     if (response.status === 429 && attempt < MAX_ATTEMPTS) {
       // 何秒待てばよいかはヘッダーで返ってくる。無ければ 10 秒。長すぎる値は 60 秒で打ち切る
       const seconds = Number(response.headers.get("x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after")
@@ -168,7 +200,12 @@ async function queryDailyCosts(scope, period) {
   if (!credential) {
     credential = new DefaultAzureCredential();
   }
-  const token = (await credential.getToken("https://management.azure.com/.default")).token;
+  const accessToken = await withTimeout(
+    credential.getToken("https://management.azure.com/.default"),
+    TOKEN_TIMEOUT_MS,
+    `マネージド ID のトークンが ${TOKEN_TIMEOUT_MS / 1000} 秒以内に取れませんでした`
+  );
+  const token = accessToken.token;
 
   const body = {
     type: "ActualCost",
@@ -224,4 +261,4 @@ async function refreshCosts(runAt, logger) {
   }
 }
 
-module.exports = { refreshCosts, queryPeriod, toDailyCosts };
+module.exports = { refreshCosts, queryPeriod, toDailyCosts, withTimeout };
