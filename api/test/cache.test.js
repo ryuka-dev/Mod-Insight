@@ -4,6 +4,7 @@
 // cache.js のうち、Blob Storage につながずに確かめられる部分のテスト。
 //   - buildOverview: 全期間・全プラットフォームの材料から from / platform で絞る計算が
 //     db.getOverview の SQL と同じ結果になること
+//     (保存に失敗した回を合計の推移から外すことも含む)
 //   - read / readForMod: 設定(CACHE_STORAGE_CONNECTION_STRING)が無い時は
 //     例外を出さずに「キャッシュ無し」を返し、呼び出し側が DB にフォールバックできること
 // Blob の読み書きそのものは本物の Storage が要るので、ここでは扱わない。
@@ -69,6 +70,35 @@ describe("buildOverview", () => {
 
     assert.deepEqual(result.mods.map((m) => m.start_download_count), [null, null]);
     assert.deepEqual(result.totals, []);
+  });
+
+  // 9/15 の回は nexusmods の保存に失敗した(material には failed_runs が無い = 古い overview.json と同じ)
+  const withFailedRun = {
+    ...material,
+    failed_runs: [{ run_at: "2026-09-15T00:00:00.000Z", platform: "nexusmods" }],
+  };
+
+  test("保存に失敗した mod がある回は合計の推移に入れない", () => {
+    const result = cache.buildOverview(withFailedRun, null, null);
+
+    assert.deepEqual(result.totals.map((t) => t.captured_at), [
+      "2026-09-14T00:00:00.000Z",
+      "2026-09-16T00:00:00.000Z",
+    ]);
+    // 起点(期間開始後の最初の値)は今までどおり
+    assert.deepEqual(result.mods.map((m) => [m.mod_id, m.start_download_count]), [[1, 100], [2, 40]]);
+  });
+
+  test("platform で絞った時は、そのプラットフォームの失敗だけを見る", () => {
+    const thunderstore = cache.buildOverview(withFailedRun, null, "thunderstore");
+    assert.deepEqual(thunderstore.totals.map((t) => t.captured_at), [
+      "2026-09-14T00:00:00.000Z",
+      "2026-09-15T00:00:00.000Z",
+      "2026-09-16T00:00:00.000Z",
+    ]);
+
+    const nexusmods = cache.buildOverview(withFailedRun, null, "nexusmods");
+    assert.deepEqual(nexusmods.totals.map((t) => t.captured_at), ["2026-09-16T00:00:00.000Z"]);
   });
 
   test("mods の並び順(材料の順 = SQL の ORDER BY)を変えない", () => {

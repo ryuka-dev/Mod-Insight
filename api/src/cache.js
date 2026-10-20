@@ -176,9 +176,11 @@ async function rebuildAll(runAt, logger) {
       written += MOD_KINDS.length;
     }
 
-    // 一覧画面の材料: 各 mod の最新値(絞り込み無しの getOverview から)と、全 mod の履歴
+    // 一覧画面の材料: 各 mod の最新値(絞り込み無しの getOverview から)と、全 mod の履歴と、
+    // 合計の推移から外す回(保存に失敗した mod がある回)
     const overview = await db.getOverview(null, null);
     const history = await db.listSnapshotHistory();
+    const failedRuns = await db.listFailedFetchRuns();
     await write(container, "overview.json", runAt, {
       mods: overview.mods.map((m) => ({
         mod_id: m.mod_id,
@@ -191,6 +193,7 @@ async function rebuildAll(runAt, logger) {
         latest_release_date: m.latest_release_date,
       })),
       history: history,
+      failed_runs: failedRuns,
     });
     written++;
 
@@ -209,9 +212,18 @@ async function rebuildAll(runAt, logger) {
 // SQL 版との対応:
 //   mods                  is_deprecated = 0 の mod を platform で絞る(順番は SQL のまま)
 //   start_download_count  その mod の履歴のうち captured_at >= from で最初の行の値(無ければ null)
-//   totals                platform で絞った全 mod(is_deprecated を問わない)の履歴を captured_at ごとに合計
+//   totals                platform で絞った全 mod(is_deprecated を問わない)の履歴を captured_at ごとに合計。
+//                         保存に失敗した mod がある回(failed_runs。platform で絞った時はそのプラットフォームの分だけ)は入れない
 function buildOverview(data, from, platform) {
   const fromMs = from ? from.getTime() : null;
+
+  // 合計の推移から外す回(captured_at のミリ秒)。failed_runs が無い古い overview.json では何も外さない
+  const failedTimes = new Set();
+  for (const run of data.failed_runs || []) {
+    if (platform === null || run.platform === platform) {
+      failedTimes.add(new Date(run.run_at).getTime());
+    }
+  }
 
   const mods = data.mods.filter((m) => platform === null || m.platform === platform);
 
@@ -227,6 +239,9 @@ function buildOverview(data, from, platform) {
     // 履歴は mod ごとに古い順なので、最初に見つかった行が期間開始後の最初の値
     if (!startByMod.has(row.mod_id)) {
       startByMod.set(row.mod_id, row.download_count);
+    }
+    if (failedTimes.has(new Date(row.captured_at).getTime())) {
+      continue;
     }
     let total = totalsByTime.get(row.captured_at);
     if (!total) {
