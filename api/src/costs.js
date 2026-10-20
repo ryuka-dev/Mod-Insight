@@ -194,18 +194,21 @@ async function postQuery(url, body, token) {
 }
 
 // 指定期間の日別・サービス別の費用を Query API から取る
-// 入力: scope(COST_MANAGEMENT_SCOPE)、period(queryPeriod の結果)
+// 入力: scope(COST_MANAGEMENT_SCOPE)、period(queryPeriod の結果)、logger
 // 出力: { columns, rows }(複数ページあればつなげたもの)
-async function queryDailyCosts(scope, period) {
+async function queryDailyCosts(scope, period, logger) {
   if (!credential) {
     credential = new DefaultAzureCredential();
   }
+  const tokenStartedAt = Date.now();
   const accessToken = await withTimeout(
     credential.getToken("https://management.azure.com/.default"),
     TOKEN_TIMEOUT_MS,
     `マネージド ID のトークンが ${TOKEN_TIMEOUT_MS / 1000} 秒以内に取れませんでした`
   );
   const token = accessToken.token;
+  // どこまで進んだかを後からログで追えるように、トークン取得の後にも 1 行出す
+  logger.log(`運用費用: トークン取得完了(${Date.now() - tokenStartedAt}ms)`);
 
   const body = {
     type: "ActualCost",
@@ -249,7 +252,8 @@ async function refreshCosts(runAt, logger) {
   const startedAt = Date.now();
   try {
     const period = queryPeriod(runAt);
-    const result = await queryDailyCosts(scope, period);
+    logger.log(`運用費用: 取得開始 ${period.from}〜${period.to}`);
+    const result = await queryDailyCosts(scope, period, logger);
     const data = toDailyCosts(result.columns, result.rows, period);
     const saved = await cache.save("costs.json", runAt, data, logger);
     if (saved) {
