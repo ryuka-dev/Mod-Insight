@@ -21,7 +21,8 @@
 //   latest_captured_at: 一番新しい取得日時
 //   mods: [{ mod_id, name, platform, captured_at, latest_download_count, rating_score,
 //            start_download_count, delta, latest_version, latest_release_date }, ...]  ※ ダウンロード数の多い順
-//   totals: [{ captured_at, download_count, mod_count }, ...]  ※ 取得回ごとの合計の推移(古い順)
+//   totals: [{ captured_at, download_count, mod_count }, ...]  ※ 取得回ごとの合計の推移(古い順)。
+//           保存に失敗した mod がある回は入らない(db.getOverview / cache.buildOverview 参照)
 //   daily:  [{ date, increase, mod_count, average_7d }, ...]  ※ 日ごとの増加(古い順。dailyIncrease.js 参照)
 // }
 //       400 { error }(from が日付として読めない、platform が知らない値)
