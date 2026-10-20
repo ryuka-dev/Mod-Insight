@@ -30,6 +30,7 @@
 //   getOverview(from, platform) 全 mod の最新値と期間開始時点の値、合計の推移(platform で絞り込める)
 //   listSnapshotHistory()       全 mod のダウンロード数の履歴(一覧画面のキャッシュと日ごとの増加の計算用)
 //   listFetchLogs(limit)        取得ジョブの実行記録(新しい順。プラットフォームごとに 1 行)
+//   listFailedFetchRuns()       保存に失敗した mod がある回(fetch_logs の status='failed')の一覧
 // ============================================================
 
 const sql = require("mssql");
@@ -405,6 +406,10 @@ async function listVersionSnapshots(modId, from, to) {
 // 合計の推移(2 つ目の SELECT)も platform で絞るため mods と JOIN している。
 // 取得ジョブは全プラットフォームに同じ captured_at を入れるので、絞らない場合は
 // 両方のプラットフォームを足した合計になる。
+// 保存に失敗した mod がある回(fetch_logs の status='failed')は合計の推移に入れない。
+// その回は失敗した mod の分だけ合計が小さくなり、実際には無い落ち込みに見えるため
+// (2026-10-19 に 1 件の保存が失敗し、合計が 41,780 → 39,908 になった)。
+// platform で絞った時は、そのプラットフォームの失敗だけを見る。
 async function getOverview(from, platform) {
   const pool = await getPool();
 
@@ -446,6 +451,12 @@ async function getOverview(from, platform) {
       INNER JOIN mods m ON m.mod_id = s.mod_id
       WHERE (@from IS NULL OR s.captured_at >= @from)
         AND (@platform IS NULL OR m.platform = @platform)
+        AND NOT EXISTS (
+          SELECT 1 FROM fetch_logs f
+          WHERE f.run_at = s.captured_at
+            AND f.status = 'failed'
+            AND (@platform IS NULL OR f.platform = @platform)
+        )
       GROUP BY s.captured_at
       ORDER BY s.captured_at ASC;
     `);
@@ -471,6 +482,22 @@ async function listSnapshotHistory() {
     FROM snapshots s
     INNER JOIN mods m ON m.mod_id = s.mod_id
     ORDER BY s.mod_id ASC, s.captured_at ASC;
+  `);
+
+  return result.recordset;
+}
+
+// 保存に失敗した mod がある回を返す(一覧画面のキャッシュで、合計の推移から外すため)
+// 入力: なし
+// 出力: [{ run_at, platform }, ...]  ※ 古い順
+async function listFailedFetchRuns() {
+  const pool = await getPool();
+
+  const result = await pool.request().query(`
+    SELECT run_at, platform
+    FROM fetch_logs
+    WHERE status = 'failed'
+    ORDER BY run_at ASC, platform ASC;
   `);
 
   return result.recordset;
@@ -507,6 +534,7 @@ module.exports = {
   listModVersions,
   listVersionSnapshots,
   getOverview,
+  listFailedFetchRuns,
   listSnapshotHistory,
   listFetchLogs,
 };
