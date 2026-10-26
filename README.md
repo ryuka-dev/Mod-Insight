@@ -5,7 +5,7 @@
 公開中の mod(ゲーム用の追加プログラム)のダウンロード数・評価・バージョンを **2 つの配布サイトから毎日自動で集め**、
 履歴として保存し、増え方をグラフで分析できるようにしたデータ分析ダッシュボードです。
 
-- ダッシュボード: **https://www.ryuka.cloud**
+- ダッシュボード: **https://insight.ryuka.cloud**
 - 分析対象: 作者自身が Thunderstore と Nexus Mods で公開している mod(各 25 個、計 50 件)。実際の利用者がいる本物のデータです
 - 構成: Azure Functions(取得ジョブ + REST API)/ Azure SQL Database / Azure Static Web Apps / Application Insights
 

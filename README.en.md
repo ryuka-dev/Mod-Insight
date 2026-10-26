@@ -5,7 +5,7 @@
 A data analysis dashboard that **collects download counts, ratings and versions of published mods (add-on programs for games) from two distribution sites every day**,
 keeps them as history, and charts how they grow.
 
-- Dashboard: **https://www.ryuka.cloud**
+- Dashboard: **https://insight.ryuka.cloud**
 - What it tracks: mods the author has published on Thunderstore and Nexus Mods (25 on each, 50 in total). The data is real, with real users behind it
 - Stack: Azure Functions (fetch job + REST API) / Azure SQL Database / Azure Static Web Apps / Application Insights
 
