@@ -344,7 +344,7 @@ body {
   max-width: 100%;
 }
 
-/* 合計の 3 項目(狭い画面では 1 項目ずつ折り返す) */
+/* 合計の 3〜4 項目(狭い画面では 1 項目ずつ折り返す) */
 .event-impact-summary {
   display: flex;
   flex-wrap: wrap;
@@ -365,6 +365,16 @@ body {
 
 /* 更新後に新しい版を出していない mod の「新しい版なし」 */
 td.not-released {
+  color: var(--text-muted);
+}
+
+/* 「修正」の列: 修正が必要だった mod は太字、不要・未確認は控えめに */
+td.needs-fix {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+td.needs-fix-none {
   color: var(--text-muted);
 }
 

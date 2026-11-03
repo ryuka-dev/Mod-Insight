@@ -123,6 +123,7 @@ const el = {
   eventImpactCard: document.getElementById("eventImpactCard"),
   eventImpactSelect: document.getElementById("eventImpactSelect"),
   eventImpactSummary: document.getElementById("eventImpactSummary"),
+  eventImpactFixHead: document.getElementById("eventImpactFixHead"),
   eventImpactTableBody: document.querySelector("#eventImpactTable tbody"),
   // 選択中 mod の詳細
   detailTitle: document.getElementById("detailTitle"),
@@ -1017,6 +1018,14 @@ function formatDaysTo90(row) {
   return row.days_to_90pct === 0 ? "当日" : `${row.days_to_90pct} 日後`;
 }
 
+// 修正が必要だったか(needs_fix)の表示。必要な mod だけ少し強調する
+function makeNeedsFixCell(needsFix) {
+  if (needsFix === true) {
+    return makeCell("必要", "needs-fix");
+  }
+  return makeCell(needsFix === false ? "不要" : "未確認", "needs-fix-none");
+}
+
 // 選択中の更新の合計と、mod ごとの表を描く
 function renderEventImpact() {
   const impact = selectedEventImpact();
@@ -1026,19 +1035,37 @@ function renderEventImpact() {
     return;
   }
 
+  // 修正が必要だったかの記録がある更新(basis = "needs_fix")では、合計は修正が必要だった mod だけで出ている。
+  // 記録が無い更新は「修正」の列を出さず、合計も今までどおり全部の mod で出す
   const summary = impact.summary;
-  el.eventImpactSummary.appendChild(makeSummaryItem("更新後に新しい版を出した mod",
-    `${formatNumber(summary.next_count)} 本(全 ${formatNumber(summary.mod_count)} 本中)`));
+  const byNeedsFix = summary.basis === "needs_fix";
+  el.eventImpactFixHead.hidden = !byNeedsFix;
+  if (byNeedsFix) {
+    el.eventImpactSummary.appendChild(makeSummaryItem("修正が必要だった mod",
+      `${formatNumber(summary.needs_fix_count)} 本(確認した ${formatNumber(summary.checked_count)} 本中)`));
+    el.eventImpactSummary.appendChild(makeSummaryItem("そのうち新しい版を出した mod",
+      `${formatNumber(summary.next_count)} 本`));
+  } else {
+    el.eventImpactSummary.appendChild(makeSummaryItem("更新後に新しい版を出した mod",
+      `${formatNumber(summary.next_count)} 本(全 ${formatNumber(summary.mod_count)} 本中)`));
+  }
   el.eventImpactSummary.appendChild(makeSummaryItem("新しい版までの日数(中央値)",
     summary.median_days_to_next === null ? "–" : `${formatNumber(summary.median_days_to_next)} 日`));
-  el.eventImpactSummary.appendChild(makeSummaryItem("その間の旧版のダウンロード(合計、多めの見積もり)",
+  el.eventImpactSummary.appendChild(makeSummaryItem(
+    byNeedsFix
+      ? "その間の旧版のダウンロード(修正が必要だった mod の合計、多めの見積もり)"
+      : "その間の旧版のダウンロード(合計、多めの見積もり)",
     formatNumber(summary.old_downloads_total)));
 
-  // 行の並びは API のまま(新しい版を出した mod が日数の短い順に先、出していない mod は旧版のダウンロードの多い順に後)
+  // 行の並びは API のまま(新しい版を出した mod が日数の短い順に先、出していない mod は旧版のダウンロードの多い順に後。
+  // 記録がある更新では、その並びのまま修正が必要 → 不要 → 未確認の順にまとめてある)
   for (const row of impact.mods) {
     const tr = document.createElement("tr");
     tr.dataset.modId = String(row.mod_id);
     tr.appendChild(makeCell(row.name));
+    if (byNeedsFix) {
+      tr.appendChild(makeNeedsFixCell(row.needs_fix));
+    }
     tr.appendChild(makeCell(`v${row.version_at_event}`));
     if (row.next_version === null) {
       tr.appendChild(makeCell("新しい版なし", "not-released"));
