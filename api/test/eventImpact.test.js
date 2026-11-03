@@ -11,6 +11,9 @@
 //   - 新しい版の割合が 90% に届かなければ days_to_90pct が null になること
 //   - 対象外の出来事・記録を始める前の更新・非推奨の mod を外すこと
 //   - platform で絞ってから合計(summary)を出すこと
+//   - 修正が必要だったかの記録がある更新では、合計を修正が必要だった mod だけで出し、
+//     その mod を先に並べること。記録が無い更新・一部だけ記録がある更新・片方のプラットフォームにだけ
+//     記録がある更新のそれぞれで、合計の対象(basis)が正しく決まること
 // ============================================================
 
 const { test, describe } = require("node:test");
@@ -101,6 +104,7 @@ describe("buildEventImpacts(本番の数字)", () => {
       mod_id: 1,
       name: "SULFUR_Together",
       platform: "thunderstore",
+      needs_fix: null,
       version_at_event: "1.4.1",
       next_version: "1.5.0",
       next_first_day: "2026-11-01",
@@ -270,13 +274,22 @@ describe("selectEventImpacts", () => {
 
     const [thunderstore] = selectEventImpacts(impacts, "thunderstore");
     assert.deepEqual(thunderstore.mods.map((r) => r.mod_id), [12, 10]);
-    assert.deepEqual(thunderstore.summary, { mod_count: 2, next_count: 2, median_days_to_next: 0.5, old_downloads_total: 22 });
+    assert.deepEqual(thunderstore.summary, {
+      mod_count: 2, next_count: 2, median_days_to_next: 0.5, old_downloads_total: 22,
+      basis: "all", checked_count: 0, needs_fix_count: 0,
+    });
 
     const [nexus] = selectEventImpacts(impacts, "nexusmods");
-    assert.deepEqual(nexus.summary, { mod_count: 1, next_count: 0, median_days_to_next: null, old_downloads_total: 11 });
+    assert.deepEqual(nexus.summary, {
+      mod_count: 1, next_count: 0, median_days_to_next: null, old_downloads_total: 11,
+      basis: "all", checked_count: 0, needs_fix_count: 0,
+    });
 
     const [all] = selectEventImpacts(impacts, null);
-    assert.deepEqual(all.summary, { mod_count: 3, next_count: 2, median_days_to_next: 0.5, old_downloads_total: 33 });
+    assert.deepEqual(all.summary, {
+      mod_count: 3, next_count: 2, median_days_to_next: 0.5, old_downloads_total: 33,
+      basis: "all", checked_count: 0, needs_fix_count: 0,
+    });
     assert.deepEqual(Object.keys(all), ["event_id", "occurred_at", "kind", "title", "url", "day", "summary", "mods"]);
   });
 
@@ -288,5 +301,91 @@ describe("selectEventImpacts", () => {
     });
     assert.deepEqual(selectEventImpacts(impacts, "nexusmods"), []);
     assert.equal(selectEventImpacts(impacts, "thunderstore").length, 3);
+  });
+});
+
+// ---- 修正が必要だったかの記録 ----
+// syntheticInput の 3 つの mod(更新 100 に対して):
+//   10 Half     thunderstore  1 日で新しい版、旧版 20
+//   11 NoNext   nexusmods     新しい版なし、旧版 11
+//   12 SameDay  thunderstore  0 日で新しい版、旧版 2
+// 記録が無い時の並びは [12, 10, 11]
+function selectWithAssessments(assessments, platform) {
+  const input = syntheticInput();
+  const impacts = buildEventImpacts({ ...input, assessments: assessments });
+  return selectEventImpacts(impacts, platform);
+}
+
+describe("修正が必要だったかの記録", () => {
+  test("記録が無ければ needs_fix は null で、合計も並びも今までどおり。ほかの更新の記録は混ざらない", () => {
+    const [event] = selectWithAssessments([{ event_id: 999, mod_id: 10, needs_fix: true }], null);
+    assert.deepEqual(event.mods.map((r) => [r.mod_id, r.needs_fix]), [[12, null], [10, null], [11, null]]);
+    assert.equal(event.summary.basis, "all");
+    assert.equal(event.summary.mod_count, 3);
+  });
+
+  test("全部に記録がある: 修正が必要だった mod だけで合計し、必要 → 不要の順に並べる", () => {
+    const [event] = selectWithAssessments([
+      { event_id: 100, mod_id: 10, needs_fix: true },
+      { event_id: 100, mod_id: 11, needs_fix: true },
+      { event_id: 100, mod_id: 12, needs_fix: false },
+    ], null);
+    // 必要な 10 と 11 は元の並び(10 が先)のまま、不要な 12 は後
+    assert.deepEqual(event.mods.map((r) => [r.mod_id, r.needs_fix]), [[10, true], [11, true], [12, false]]);
+    assert.deepEqual(event.summary, {
+      mod_count: 2, next_count: 1, median_days_to_next: 1, old_downloads_total: 20 + 11,
+      basis: "needs_fix", checked_count: 3, needs_fix_count: 2,
+    });
+  });
+
+  test("一部だけ記録がある: 記録が 1 つでもあれば修正が必要だった mod だけで合計し、未確認は最後", () => {
+    const [event] = selectWithAssessments([
+      { event_id: 100, mod_id: 10, needs_fix: true },
+      { event_id: 100, mod_id: 11, needs_fix: false },
+    ], null);
+    assert.deepEqual(event.mods.map((r) => [r.mod_id, r.needs_fix]), [[10, true], [11, false], [12, null]]);
+    assert.deepEqual(event.summary, {
+      mod_count: 1, next_count: 1, median_days_to_next: 1, old_downloads_total: 20,
+      basis: "needs_fix", checked_count: 2, needs_fix_count: 1,
+    });
+  });
+
+  test("確認した mod がどれも修正不要なら、合計は 0 本", () => {
+    const [event] = selectWithAssessments([{ event_id: 100, mod_id: 12, needs_fix: false }], "thunderstore");
+    assert.deepEqual(event.summary, {
+      mod_count: 0, next_count: 0, median_days_to_next: null, old_downloads_total: 0,
+      basis: "needs_fix", checked_count: 1, needs_fix_count: 0,
+    });
+  });
+
+  test("片方のプラットフォームにだけ記録がある: 合計の対象は絞った後の行で決める", () => {
+    const assessments = [{ event_id: 100, mod_id: 11, needs_fix: true }];  // Nexus Mods の mod だけ
+
+    const [thunderstore] = selectWithAssessments(assessments, "thunderstore");
+    assert.equal(thunderstore.summary.basis, "all");
+    assert.deepEqual(thunderstore.mods.map((r) => r.mod_id), [12, 10]);
+    assert.equal(thunderstore.summary.mod_count, 2);
+
+    const [nexus] = selectWithAssessments(assessments, "nexusmods");
+    assert.deepEqual(nexus.summary, {
+      mod_count: 1, next_count: 0, median_days_to_next: null, old_downloads_total: 11,
+      basis: "needs_fix", checked_count: 1, needs_fix_count: 1,
+    });
+
+    // 絞らない時は記録が 1 つあるので、Thunderstore の 2 つ(未確認)は合計に入らない
+    const [all] = selectWithAssessments(assessments, null);
+    assert.deepEqual(all.mods.map((r) => r.mod_id), [11, 12, 10]);
+    assert.equal(all.summary.basis, "needs_fix");
+    assert.equal(all.summary.mod_count, 1);
+  });
+
+  test("needs_fix の無い行(記録を付ける前のキャッシュ)は未確認として扱う", () => {
+    const impacts = buildEventImpacts(syntheticInput());
+    for (const row of impacts[0].mods) {
+      delete row.needs_fix;
+    }
+    const [event] = selectEventImpacts(impacts, null);
+    assert.deepEqual(event.mods.map((r) => r.needs_fix), [null, null, null]);
+    assert.equal(event.summary.basis, "all");
   });
 });

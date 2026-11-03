@@ -13,7 +13,12 @@
 // 測れないこと:
 //   - その mod が実際に壊れていたかどうか。ダウンロード数からは分からないので、
 //     「修正版」ではなく「更新後に最初に出した版」と呼ぶ
+//     (壊れていたかどうかは、下の「修正が必要だったか」の記録があればそれを使う)
 //   - 何人が実際にその版を使っているか(分かるのはダウンロード数だけ)
+//
+// 修正が必要だったか(needs_fix):
+//   互換性チェック(ゲームの新しいビルドで各 mod を確かめる作業)の結論。event_mod_assessments(sql/005)から来る。
+//   true = 修正が必要だった、false = 確認して修正は不要だった、null = 未確認(記録が無い)
 //
 // 言葉の決まり:
 //   更新日 D       出来事の日時(occurred_at)を日本時間にした日付
@@ -51,6 +56,13 @@
 //
 // 並び順: next_version がある mod を先に(days_to_next の小さい順、同じなら old_downloads の多い順)、
 //         無い mod はその後に old_downloads の多い順。どちらも最後は名前順。
+//         合計を「修正が必要だった mod」で出す更新では、その並びのまま、
+//         修正が必要だった mod → 不要だった mod → 未確認の mod の順にまとめる(selectEventImpacts)。
+//
+// 合計(summary)の対象(selectEventImpacts。platform で絞った後の行で決める):
+//   basis "needs_fix"  修正が必要だったかの記録が 1 つでもある更新。修正が必要だった mod(needs_fix が true)だけで合計する。
+//                      修正が要らなかった mod は新しい版を出す必要が無いので、混ぜると日数や旧版のダウンロードの意味が薄れるため
+//   basis "all"        記録が 1 つも無い更新。すべての mod で合計する(記録を付ける前と同じ)
 // ============================================================
 
 const { buildVersionDays, addDays } = require("./releaseImpact");
@@ -205,12 +217,19 @@ function sortImpactRows(rows) {
 //   mods:                   db.listMods() の結果([{ mod_id, name, platform, is_deprecated, ... }, ...])
 //   versionSnapshotsByMod:  Map(mod_id → db.listVersionSnapshots(mod_id, null, null) の結果)
 //   events:                 db.listEvents() の結果([{ event_id, occurred_at, kind, title, url, ... }, ...])
+//   assessments:            db.listEventModAssessments() の結果([{ event_id, mod_id, needs_fix }, ...])。省略時は記録なし
 // }
 // 出力: [{ event_id, occurred_at, kind, title, url, day,
-//          mods: [{ mod_id, name, platform, version_at_event, next_version, next_first_day, days_to_next,
+//          mods: [{ mod_id, name, platform, needs_fix, version_at_event, next_version, next_first_day, days_to_next,
 //                   old_downloads, old_days, next_first_2_days, next_days_counted, days_to_90pct }, ...] }, ...]
 //       ※ 新しい更新が先。day は更新日 D。合計(summary)はここでは付けない(selectEventImpacts で付ける)
-function buildEventImpacts({ mods, versionSnapshotsByMod, events }) {
+function buildEventImpacts({ mods, versionSnapshotsByMod, events, assessments }) {
+  // "event_id/mod_id" → needs_fix(true / false)。無い組み合わせは未確認
+  const needsFixByKey = new Map();
+  for (const assessment of assessments || []) {
+    needsFixByKey.set(`${assessment.event_id}/${assessment.mod_id}`, assessment.needs_fix);
+  }
+
   // mod ごとの「日ごとの増加」は更新ごとに作り直さず、最初に 1 回だけ作る
   const modDays = [];
   for (const mod of mods) {
@@ -238,7 +257,9 @@ function buildEventImpacts({ mods, versionSnapshotsByMod, events }) {
       if (impact === null) {
         continue;
       }
-      rows.push({ mod_id: mod.mod_id, name: mod.name, platform: mod.platform, ...impact });
+      const key = `${event.event_id}/${mod.mod_id}`;
+      const needsFix = needsFixByKey.has(key) ? needsFixByKey.get(key) : null;
+      rows.push({ mod_id: mod.mod_id, name: mod.name, platform: mod.platform, needs_fix: needsFix, ...impact });
     }
     // 前日に記録のある mod が 1 つも無い(記録を始める前の)更新は入れない
     if (rows.length === 0) {
@@ -265,7 +286,7 @@ function buildEventImpacts({ mods, versionSnapshotsByMod, events }) {
 }
 
 // mod ごとの行から、1 つの更新についての合計を出す
-// 入力: rows(mod ごとの行の配列)
+// 入力: rows(合計する mod の行の配列。どの行を入れるかは selectEventImpacts が決める)
 // 出力: { mod_count, next_count, median_days_to_next, old_downloads_total }
 //   mod_count            集計した mod の数
 //   next_count           更新後に新しい版を出した mod の数
@@ -289,18 +310,43 @@ function summarizeEventImpact(rows) {
   };
 }
 
+// 修正が必要だったかの並び順(必要 → 不要 → 未確認)
+function needsFixRank(row) {
+  if (row.needs_fix === true) {
+    return 0;
+  }
+  return row.needs_fix === false ? 1 : 2;
+}
+
 // buildEventImpacts の結果を platform で絞り、更新ごとの合計(summary)を付ける
 // 入力: impacts(buildEventImpacts の結果)、platform(文字列または null。null なら全プラットフォーム)
 // 出力: [{ event_id, occurred_at, kind, title, url, day, summary, mods }, ...]
+//       summary = { mod_count, next_count, median_days_to_next, old_downloads_total,
+//                   basis, checked_count, needs_fix_count }
+//         basis            "needs_fix" または "all"(上の「合計の対象」)。上の 4 つはこの対象の行だけで出す
+//         checked_count    修正が必要だったかの記録がある mod の数(needs_fix が null でない行)
+//         needs_fix_count  修正が必要だった mod の数
 //       絞った結果 mod が 1 つも無い更新は入れない
 // 合計は絞った後の行から出す(キャッシュでも DB でも、合計の計算はここだけ)
 function selectEventImpacts(impacts, platform) {
   const results = [];
   for (const impact of impacts) {
-    const rows = impact.mods.filter((row) => platform === null || row.platform === platform);
+    // needs_fix が無い行(記録を付ける前に作ったキャッシュ)は未確認(null)にそろえる
+    const rows = impact.mods
+      .filter((row) => platform === null || row.platform === platform)
+      .map((row) => ({ ...row, needs_fix: row.needs_fix === true || row.needs_fix === false ? row.needs_fix : null }));
     if (rows.length === 0) {
       continue;
     }
+
+    const checkedCount = rows.filter((row) => row.needs_fix !== null).length;
+    const needsFixRows = rows.filter((row) => row.needs_fix === true);
+    const basis = checkedCount > 0 ? "needs_fix" : "all";
+    if (basis === "needs_fix") {
+      // sort は同じ順位どうしの並びを変えないので、元の並び(日数の短い順など)はグループの中で保たれる
+      rows.sort((a, b) => needsFixRank(a) - needsFixRank(b));
+    }
+
     results.push({
       event_id: impact.event_id,
       occurred_at: impact.occurred_at,
@@ -308,7 +354,12 @@ function selectEventImpacts(impacts, platform) {
       title: impact.title,
       url: impact.url,
       day: impact.day,
-      summary: summarizeEventImpact(rows),
+      summary: {
+        ...summarizeEventImpact(basis === "needs_fix" ? needsFixRows : rows),
+        basis: basis,
+        checked_count: checkedCount,
+        needs_fix_count: needsFixRows.length,
+      },
       mods: rows,
     });
   }
