@@ -1005,7 +1005,7 @@ function formatFirstTwoDays(row) {
   return `${formatNumber(row.next_first_2_days)}${days}`;
 }
 
-// 新しい版が 90% を超えるまでの日数の表示
+// 更新後に出した版(旧版以外)がその日のダウンロードの 90% を超えるまでの日数の表示
 // 0 = 記録に出た日のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
 function formatDaysTo90(row) {
   if (row.next_version === null) {

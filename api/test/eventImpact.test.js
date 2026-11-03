@@ -242,6 +242,28 @@ describe("buildEventImpacts(境目)", () => {
   });
 });
 
+describe("buildEventImpacts(続けて次の版を出した場合)", () => {
+  test("90% を超えるまでは、next_version だけでなく更新後に出した版すべての割合で測る", () => {
+    // 9/04 に 1.1、翌日に 1.2 を出し、ダウンロードが 1.2 に移った mod
+    const rows = [
+      ...capture("2026-09-02", { "1.0": 100 }),
+      ...capture("2026-09-03", { "1.0": 101 }),
+      ...capture("2026-09-04", { "1.0": 110, "1.1": 10 }),
+      ...capture("2026-09-05", { "1.0": 111, "1.1": 11, "1.2": 20 }),
+    ];
+    const [event] = buildEventImpacts({
+      mods: [{ mod_id: 20, name: "TwoReleases", platform: "thunderstore", is_deprecated: false }],
+      versionSnapshotsByMod: new Map([[20, rows]]),
+      events: [{ event_id: 200, occurred_at: "2026-09-03T01:00:00.000Z", kind: "game_patch", title: "Patch", url: null, source: "steam", mod_id: null }],
+    });
+    const [row] = event.mods;
+    assert.equal(row.next_version, "1.1");
+    // 9/04 は旧版以外が 10 / 19 = 53%、9/05 は (1 + 20) / 22 = 95%。
+    // 1.1 だけで測ると 9/05 は 1 / 22 で、旧版から離れたのに「届かない」になってしまう
+    assert.equal(row.days_to_90pct, 1);
+  });
+});
+
 describe("selectEventImpacts", () => {
   test("platform で絞ってから合計を出す", () => {
     const impacts = buildEventImpacts(syntheticInput());

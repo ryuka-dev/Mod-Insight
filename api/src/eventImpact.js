@@ -8,7 +8,7 @@
 //   - ゲームの更新から、mod の新しい版を出すまでに何日かかったか
 //   - その間に、更新前の版が何回ダウンロードされたか
 //     (その mod が壊れていた場合に、影響を受けた可能性のある人数の目安)
-//   - 新しい版が出た後、どれくらいの速さで新しい版にダウンロードが移ったか
+//   - 新しい版が出た後、どれくらいの速さでダウンロードが旧版から離れたか
 //
 // 測れないこと:
 //   - その mod が実際に壊れていたかどうか。ダウンロード数からは分からないので、
@@ -42,9 +42,11 @@
 //   next_first_2_days  next_version の、初めて現れた日とその翌日のダウンロードの合計
 //                      (mod マネージャーで更新した人の数の下限の目安。Thunderstore でだけ意味がある)
 //   next_days_counted  next_first_2_days に足した日数(翌日の記録がまだ無ければ 1)
-//   days_to_90pct      next_version がその日の全ダウンロードの 90% 以上になった最初の日が、
-//                      初めて現れた日から何日後か(0 = 初めて現れた日)。14 日以内に届かなければ null。
-//                      その日の全ダウンロードが 0 以下の日は飛ばす
+//   days_to_90pct      更新後に出した版(旧版以外のすべての版)がその日の全ダウンロードの 90% 以上になった最初の日が、
+//                      next_version が初めて現れた日から何日後か(0 = 初めて現れた日)。14 日以内に届かなければ null。
+//                      その日の全ダウンロードが 0 以下の日は飛ばす。
+//                      next_version だけで測らないのは、続けて次の版を出すと(例: 1.5.0 の翌日に 1.6.0)
+//                      ダウンロードがさらに新しい版へ移り、旧版から離れたのに「届かない」と出てしまうため
 //   next_version が無い時は next_ で始まる項目と days_to_next / days_to_90pct はすべて null。
 //
 // 並び順: next_version がある mod を先に(days_to_next の小さい順、同じなら old_downloads の多い順)、
@@ -156,14 +158,20 @@ function buildModImpact(versionDays, lastDay, eventDay) {
   result.next_first_2_days = counted > 0 ? firstTwo : null;
   result.next_days_counted = counted;
 
-  // 次の版がその日のダウンロードの 90% 以上になった最初の日(初めて現れた日を 0 日後とする)
+  // 旧版以外(更新後に出した版すべて)がその日のダウンロードの 90% 以上になった最初の日
+  // (next_version が初めて現れた日を 0 日後とする)
   for (let k = 0; k < SHARE_DAYS; k++) {
     const day = daily.get(addDays(nextFirstDay, k));
     if (!day || day.total <= 0) {
       continue;
     }
-    const increase = day.byVersion.get(nextVersion) || 0;
-    if (increase / day.total >= SHARE_THRESHOLD) {
+    let oldIncrease = 0;
+    for (const [version, increase] of day.byVersion) {
+      if (oldVersions.has(version)) {
+        oldIncrease += increase;
+      }
+    }
+    if ((day.total - oldIncrease) / day.total >= SHARE_THRESHOLD) {
       result.days_to_90pct = k;
       break;
     }

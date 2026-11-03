@@ -277,7 +277,7 @@ Base URL: `https://mod-insight-ryuka-hrhbbdauc0ezbfc7.eastasia-01.azurewebsites.
 | GET | `/mods/{modId}/releases` | Downloads per day for 7 days before and after each version release, and the new version's share (up to 14 days after release). Not filtered by period |
 | GET | `/fetch/logs` | Fetch job run history |
 | GET | `/events` | List of external events (game announcements, hand-written notes), oldest first, all of them. Used for markers on the charts |
-| GET | `/event-impacts?platform=` | Per game major update or patch, each mod's response (first version published after it, days until then, old-version downloads in between, the new version's first 2 days, days until it passes 90%) plus totals, newest update first. `platform` is `thunderstore` / `nexusmods` (omit for both) |
+| GET | `/event-impacts?platform=` | Per game major update or patch, each mod's response (first version published after it, days until then, old-version downloads in between, the new version's first 2 days, days until versions other than the pre-update ones pass 90%) plus totals, newest update first. `platform` is `thunderstore` / `nexusmods` (omit for both) |
 | GET | `/costs` | This system's running costs (daily, per service, up to the last finalized day). Served only from the cache written by the fetch job |
 | POST | `/fetch/run` | Run the fetch job once, now (requires the `x-functions-key` header) |
 
