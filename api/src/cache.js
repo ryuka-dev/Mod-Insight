@@ -31,6 +31,7 @@
 //   overview.json                        GET /api/overview の材料(全期間・全プラットフォーム)
 //   fetch-logs.json                      GET /api/fetch/logs(新しい順に最大 200 件)
 //   events.json                          GET /api/events(外部の出来事、全件・古い順)
+//   event-impacts.json                   GET /api/event-impacts の材料(全プラットフォーム。eventImpact.js の buildEventImpacts の結果)
 //   costs.json                           GET /api/costs(costs.js が save() で書く。DB から作らない唯一の Blob)
 //   from / to / platform / limit の絞り込みは Blob を分けず、読んだ後に JS で行う。
 //
@@ -41,6 +42,7 @@
 
 const { BlobServiceClient } = require("@azure/storage-blob");
 const db = require("./db");
+const { buildEventImpacts } = require("./eventImpact");
 
 const CONTAINER_NAME = "api-cache";
 
@@ -151,7 +153,7 @@ async function save(name, runAt, data, logger) {
 // すべての Blob を DB の内容から作り直す。取得ジョブの最後に呼ぶ
 // 入力: runAt(取得ジョブの実行日時、ISO 文字列)、logger
 // 出力: なし。失敗してもここでログを出すだけで、例外は投げない
-// 順番: mods.json → mod ごとの 4 種類 → overview.json → fetch-logs.json → events.json
+// 順番: mods.json → mod ごとの 4 種類 → overview.json → fetch-logs.json → events.json → event-impacts.json
 async function rebuildAll(runAt, logger) {
   const container = getContainer();
   if (!container) {
@@ -168,12 +170,16 @@ async function rebuildAll(runAt, logger) {
     await write(container, "mods.json", runAt, mods);
     written++;
 
+    // バージョン別の時系列は event-impacts.json でも使うので、mod_id ごとに取っておく(DB に 2 回聞かないため)
+    const versionSnapshotsByMod = new Map();
     for (const mod of mods) {
       const id = mod.mod_id;
       await write(container, modBlobName(id, "summary"), runAt, await db.getModSummary(id));
       await write(container, modBlobName(id, "snapshots"), runAt, await db.listSnapshots(id, null, null));
       await write(container, modBlobName(id, "versions"), runAt, await db.listModVersions(id));
-      await write(container, modBlobName(id, "version-snapshots"), runAt, await db.listVersionSnapshots(id, null, null));
+      const versionSnapshots = await db.listVersionSnapshots(id, null, null);
+      versionSnapshotsByMod.set(id, versionSnapshots);
+      await write(container, modBlobName(id, "version-snapshots"), runAt, versionSnapshots);
       written += MOD_KINDS.length;
     }
 
@@ -201,7 +207,16 @@ async function rebuildAll(runAt, logger) {
     await write(container, "fetch-logs.json", runAt, await db.listFetchLogs(FETCH_LOGS_CACHE_LIMIT));
     written++;
 
-    await write(container, "events.json", runAt, await db.listEvents());
+    const events = await db.listEvents();
+    await write(container, "events.json", runAt, events);
+    written++;
+
+    // ゲーム更新ごとの対応状況。上で読んだ mod 一覧・バージョン別の時系列・出来事から計算する(DB への追加の問い合わせは無い)
+    await write(container, "event-impacts.json", runAt, buildEventImpacts({
+      mods: mods,
+      versionSnapshotsByMod: versionSnapshotsByMod,
+      events: events,
+    }));
     written++;
 
     logger.log(`キャッシュ更新完了: run_at=${runAt}, Blob 数=${written}, 所要時間=${Date.now() - startedAt}ms`);
