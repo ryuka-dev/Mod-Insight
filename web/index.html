@@ -207,7 +207,7 @@
 
     <section class="card" aria-label="公開の前後">
       <h2 class="card-title">公開の前後</h2>
-      <p class="card-note">新しいバージョンを公開した前後 7 日の、1 日あたりのダウンロード(全バージョンの合計)と、その日のダウンロードのうち新しい版が占める割合。分かるのはダウンロード数だけで、何人がどの版を使っているかではありません。公開 1 日目は新しい版が初めて記録に現れた日で、記録を始める前に公開された版は比べていません。次の版が出た日からは数えません。7 日そろわない時は、ある日数だけで平均しています(括弧内が日数)。</p>
+      <p class="card-note">新しいバージョンを公開した前後 7 日の、1 日あたりのダウンロード(全バージョンの合計)と、その日のダウンロードのうち新しい版が占める割合。分かるのはダウンロード数だけで、何人がどの版を使っているかは分かりません。公開 1 日目は新しい版が初めて記録に現れた日で、記録を始める前に公開された版は比べていません。次の版が出た日からは数えません。7 日分そろわない時は、記録のある日だけで平均しています(括弧内が日数)。</p>
       <div class="table-scroll">
         <table id="releaseTable">
           <thead>
@@ -240,7 +240,7 @@
     </div>
     <section class="card" aria-label="運用費用">
       <h2 class="card-title">運用費用</h2>
-      <p class="card-note">このダッシュボード自体を動かしている Azure の費用(リソースグループ全体の実績、Azure Cost Management から毎日取得)。日別の値は締めた後もしばらく増えるので、確定した日までを表示しています。<span id="costZeroNote"></span></p>
+      <p class="card-note">このダッシュボード自体を動かしている Azure の費用(リソースグループ全体の実績、Azure Cost Management から毎日取得)。日別の値はその日が終わってからもしばらく増えるので、確定した日までを表示しています。<span id="costZeroNote"></span></p>
       <div class="overview-tiles">
         <div class="stat-tile">
           <span class="stat-label">1 日あたり(直近 7 日の平均)</span>
@@ -276,7 +276,7 @@
 
     <section class="card">
       <h2 class="card-title">取得ジョブの実行記録</h2>
-      <p class="card-note">毎日 0:00(日本時間)に自動実行。配布サイトごとに 1 行。両方の配布サイトの直近 10 件を表示(上の選択には関係しません)。</p>
+      <p class="card-note">毎日 0:00(日本時間)に自動で実行しています。1 回の実行で配布サイトごとに 1 行を記録し、上の選択に関係なく両方の配布サイトの直近 10 件を表示します。</p>
       <div class="table-scroll">
         <table id="logTable">
           <thead>
@@ -289,7 +289,7 @@
   </main>
 
   <footer class="page-footer">
-    <p>データ取得元: Thunderstore 公開 API(sulfur コミュニティ)と Nexus Mods GraphQL API。バックエンド: Azure Functions + Azure SQL Database。</p>
+    <p>データ取得元: Thunderstore 公開 API(sulfur コミュニティ)、Nexus Mods GraphQL API、Steam のゲームのお知らせ(Steam News API)。バックエンド: Azure Functions + Azure SQL Database。</p>
   </footer>
 
   <!-- グラフ描画ライブラリ(Chart.js)と、時間軸を扱うための日付アダプター -->
