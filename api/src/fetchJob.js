@@ -32,7 +32,9 @@
 //   3. そのプラットフォームの結果を fetch_logs へ 1 行 INSERT
 // 全プラットフォームの snapshots に同じ run_at を入れるので、
 // 「同じ回の取得」としてプラットフォーム横断で合計できる。
-// 全プラットフォームが終わったら、GET API 用の Blob キャッシュ(cache.js)を作り直す。
+// 全プラットフォームが終わったら、ゲームのお知らせ(steamNews.js、Steam)を取って events テーブルに保存する。
+// グラフに出来事の印を付けるためのもので mod のデータとは関係ないので、失敗しても results には入れない。
+// 続けて GET API 用の Blob キャッシュ(cache.js)を作り直す(お知らせの保存より後にして、その日の分もキャッシュに入れる)。
 // キャッシュの失敗はログに出すだけで、results(= fetch_logs の内容)には影響しない。
 // 最後に運用費用(costs.js)も取り直す。mod のデータとは関係ないので、失敗しても results には入れない。
 //
@@ -44,6 +46,7 @@
 const db = require("./db");
 const cache = require("./cache");
 const costs = require("./costs");
+const steamNews = require("./steamNews");
 const thunderstore = require("./platforms/thunderstore");
 const nexusmods = require("./platforms/nexusmods");
 
@@ -146,6 +149,44 @@ async function runPlatform(adapter, runAt, logger) {
   return result;
 }
 
+// ゲームのお知らせを取得して events テーブルに保存する
+// 入力: logger
+// 出力: なし。失敗してもログを出すだけで、例外は投げない(results / fetch_logs には何も書かない)
+// 毎日最新の 50 件を取り直すので、ある日に失敗しても次の日の取得で取り戻せる。
+// そのためアラートの対象にもしていない(docs/monitoring.md)。
+// 保存は 1 件目から順に行い、途中で失敗したらそこでやめる。
+// 失敗するのは DB に書けない時がほとんどで、残りを続けても同じように失敗し、待ち時間だけが延びるため。
+async function refreshGameEvents(logger) {
+  const startedAt = Date.now();
+  logger.log("ゲームのお知らせ: 取得開始");
+
+  let events;
+  try {
+    events = await steamNews.fetchGameEvents(logger);
+  } catch (err) {
+    logger.error("ゲームのお知らせの取得に失敗しました(保存済みの出来事はそのまま残ります):", err);
+    return;
+  }
+
+  let inserted = 0;  // 新しく入れた件数
+  let updated = 0;   // 既にあって title / url を更新した件数
+  try {
+    for (const event of events) {
+      const action = await db.upsertEvent(event);
+      if (action === "INSERT") {
+        inserted++;
+      } else {
+        updated++;
+      }
+    }
+  } catch (err) {
+    logger.error(`ゲームのお知らせの保存に失敗しました(${inserted + updated} 件保存した後):`, err);
+    return;
+  }
+
+  logger.log(`ゲームのお知らせ: 保存完了 新規=${inserted}, 既存=${updated}, 所要時間=${Date.now() - startedAt}ms`);
+}
+
 // 取得ジョブ本体: 全プラットフォームを順番に処理する
 async function runFetchJob(logger) {
   // この実行の日時。全プラットフォーム・全 mod のスナップショットに同じ値を入れることで
@@ -158,6 +199,9 @@ async function runFetchJob(logger) {
     results.push(await runPlatform(adapter, runAt, logger));
   }
 
+  // ゲームのお知らせ。DB が起きている今のうちに保存し、下のキャッシュの作り直しに含める(失敗しても例外は出ない)
+  await refreshGameEvents(logger);
+
   // 保存が終わった今は DB が起きているので、この場でキャッシュを作り直す(失敗しても例外は出ない)
   await cache.rebuildAll(runAt, logger);
 
@@ -167,4 +211,8 @@ async function runFetchJob(logger) {
   return { run_at: runAt, results: results };
 }
 
-module.exports = { runFetchJob };
+module.exports = {
+  runFetchJob,
+  // テスト用
+  refreshGameEvents,
+};
