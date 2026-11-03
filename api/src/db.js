@@ -33,6 +33,8 @@
 //   listFetchLogs(limit)        取得ジョブの実行記録(新しい順。プラットフォームごとに 1 行)
 //   listFailedFetchRuns()       保存に失敗した mod がある回(fetch_logs の status='failed')の一覧
 //   listEvents()                外部の出来事(ゲームのお知らせ、手入力のメモ)の一覧(古い順)
+//   listEventModAssessments()   ゲームの更新ごとに、mod ごとの「修正が必要だったか」の記録の一覧
+//   (event_mod_assessments への書き込みは取得ジョブではなく scripts/import-assessment.js が行う)
 // ============================================================
 
 const sql = require("mssql");
@@ -605,6 +607,28 @@ async function listEvents() {
   return result.recordset;
 }
 
+// ゲームの更新ごとに、mod ごとの「修正が必要だったか」の記録を返す(ゲーム更新への対応の合計に使う)
+// 入力: なし
+// 出力: [{ event_id, mod_id, needs_fix(true / false) }, ...]  ※ event_id、mod_id の順
+//       行が無い組み合わせは「未確認」(sql/005)。更新 × mod の数しか無いので全件返す。
+//       updated_at は画面で使わないので返さない。
+async function listEventModAssessments() {
+  const pool = await getPool();
+
+  const result = await pool.request().query(`
+    SELECT event_id, mod_id, needs_fix
+    FROM event_mod_assessments
+    ORDER BY event_id ASC, mod_id ASC;
+  `);
+
+  // BIT 列は mssql が true / false で返すが、念のため boolean にそろえる
+  return result.recordset.map((row) => ({
+    event_id: row.event_id,
+    mod_id: row.mod_id,
+    needs_fix: row.needs_fix === true || row.needs_fix === 1,
+  }));
+}
+
 module.exports = {
   upsertMod,
   upsertModVersion,
@@ -623,6 +647,7 @@ module.exports = {
   listSnapshotHistory,
   listFetchLogs,
   listEvents,
+  listEventModAssessments,
   // テスト用(DB には接続しない)
   buildPoolConfig,
   describeConnectionError,
