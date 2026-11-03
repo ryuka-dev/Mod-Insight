@@ -22,6 +22,8 @@
   --series-4: #eda100;         /* 4 番目(黄) */
   --series-other: #b5b3ac;     /* それより古いバージョンをまとめた「その他」(灰) */
   --marker: #898781;           /* バージョン公開日の縦線 */
+  --event-strong: #2e2d2a;     /* ゲームの大型アップデート・パッチの縦線(バージョンの線より濃く) */
+  --event-subtle: #a3a19a;     /* ゲームのお知らせ・メモの縦線(控えめ) */
   --delta-up: #006300;         /* 増加を表す文字色 */
   --status-good: #0ca30c;
   --status-critical: #d03b3b;
@@ -46,6 +48,8 @@
     --series-4: #c98500;
     --series-other: #5c5b57;
     --marker: #898781;
+    --event-strong: #e6e5df;
+    --event-subtle: #6b6a65;
     --delta-up: #0ca30c;
     --selected-bg: #ffffff;
     --selected-text: #0b0b0b;
