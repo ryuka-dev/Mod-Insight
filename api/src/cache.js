@@ -211,11 +211,14 @@ async function rebuildAll(runAt, logger) {
     await write(container, "events.json", runAt, events);
     written++;
 
-    // ゲーム更新ごとの対応状況。上で読んだ mod 一覧・バージョン別の時系列・出来事から計算する(DB への追加の問い合わせは無い)
+    // ゲーム更新ごとの対応状況。上で読んだ mod 一覧・バージョン別の時系列・出来事と、
+    // 修正が必要だったかの記録(ここで 1 回だけ問い合わせる)から計算する
+    const assessments = await db.listEventModAssessments();
     await write(container, "event-impacts.json", runAt, buildEventImpacts({
       mods: mods,
       versionSnapshotsByMod: versionSnapshotsByMod,
       events: events,
+      assessments: assessments,
     }));
     written++;
 
