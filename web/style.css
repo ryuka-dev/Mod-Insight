@@ -112,7 +112,8 @@ body {
   font-size: 13px;
 }
 
-#modSelect {
+#modSelect,
+#eventImpactSelect {
   min-width: 220px;
   padding: 6px 10px;
   border: 1px solid var(--border);
@@ -242,20 +243,24 @@ body {
   margin-bottom: 16px;
 }
 
-/* 一覧表の行はクリックで詳細に切り替えられる */
-#overviewTable tbody tr {
+/* 一覧表とゲーム更新への対応の表の行は、クリックで詳細に切り替えられる */
+#overviewTable tbody tr,
+#eventImpactTable tbody tr {
   cursor: pointer;
 }
 
-#overviewTable tbody tr:hover {
+#overviewTable tbody tr:hover,
+#eventImpactTable tbody tr:hover {
   background: var(--grid);
 }
 
-#overviewTable tbody tr.is-selected {
+#overviewTable tbody tr.is-selected,
+#eventImpactTable tbody tr.is-selected {
   background: var(--series-1-wash);
 }
 
-#overviewTable tbody tr.is-selected td:first-child {
+#overviewTable tbody tr.is-selected td:first-child,
+#eventImpactTable tbody tr.is-selected td:first-child {
   font-weight: 600;
 }
 
@@ -322,6 +327,45 @@ body {
 .event-swatch-game_news,
 .event-swatch-note {
   border-left: 2px dotted var(--event-subtle);
+}
+
+/* ---------- ゲーム更新への対応 ---------- */
+/* 更新を選ぶセレクトボックス。見出しが長いので、狭い画面では次の行に回して画面の幅に収める */
+.event-impact-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 12px;
+}
+
+#eventImpactSelect {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 合計の 3 項目(狭い画面では 1 項目ずつ折り返す) */
+.event-impact-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.event-impact-summary strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* まだ新しい版を出していない mod の「未公開」 */
+td.not-released {
+  color: var(--text-muted);
 }
 
 /* 詳細セクションの見出し行: 左に「○○ の詳細」、右に mod のセレクトボックス(狭ければ折り返す) */
