@@ -1007,7 +1007,7 @@ function formatFirstTwoDays(row) {
 }
 
 // 更新後に出した版(旧版以外)がその日のダウンロードの 90% を超えるまでの日数の表示
-// 0 = 初めて記録された日のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
+// 0 = 次の版が初めて記録された日(記録日)のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
 function formatDaysTo90(row) {
   if (row.next_version === null) {
     return "–";
@@ -1068,7 +1068,7 @@ function renderEventImpact() {
     }
     tr.appendChild(makeCell(`v${row.version_at_event}`));
     if (row.next_version === null) {
-      tr.appendChild(makeCell("新しい版なし", "not-released"));
+      tr.appendChild(makeCell("なし", "not-released"));
       tr.appendChild(makeCell("–"));
       tr.appendChild(makeCell("–", "num"));
     } else {

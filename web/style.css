@@ -363,7 +363,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 更新後に新しい版を出していない mod の「新しい版なし」 */
+/* 更新後に新しい版を出していない mod の「次の版」の「なし」 */
 td.not-released {
   color: var(--text-muted);
 }
