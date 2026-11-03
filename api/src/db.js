@@ -19,6 +19,7 @@
 //   insertVersionSnapshot(vs)   version_snapshots テーブルへ 1 行 INSERT する
 //   insertSnapshot(snapshot)    snapshots テーブルへ 1 行 INSERT する
 //   insertFetchLog(log)         fetch_logs テーブルへ 1 行 INSERT する(プラットフォームごとに 1 行)
+//   upsertEvent(event)          events テーブルへ MERGE(同じ source + external_id があれば title と url だけ更新、なければ挿入)
 //
 // 提供する関数(読み取り。HTTP API から使う):
 //   listMods()                  追跡中の mod 一覧
@@ -31,6 +32,7 @@
 //   listSnapshotHistory()       全 mod のダウンロード数の履歴(一覧画面のキャッシュと日ごとの増加の計算用)
 //   listFetchLogs(limit)        取得ジョブの実行記録(新しい順。プラットフォームごとに 1 行)
 //   listFailedFetchRuns()       保存に失敗した mod がある回(fetch_logs の status='failed')の一覧
+//   listEvents()                外部の出来事(ゲームのお知らせ、手入力のメモ)の一覧(古い順)
 // ============================================================
 
 const sql = require("mssql");
@@ -256,6 +258,44 @@ async function insertVersionSnapshot(versionSnapshot) {
       INSERT INTO version_snapshots (version_id, captured_at, download_count)
       VALUES (@version_id, @captured_at, @download_count);
     `);
+}
+
+// events テーブルへ挿入または更新する(取得ジョブが取り込む Steam のお知らせ用)
+// 入力: { occurred_at(ISO 文字列), kind, title, url(文字列 or null), source, external_id }
+// 出力: "INSERT"(新しく入れた)または "UPDATE"(既にあった)
+// (source, external_id) が一致する行があれば title と url だけを更新し、なければ新規挿入する。
+// kind は更新しない。大型アップデート('game_major')は手で付け替えるので(sql/004 の「使い方」)、
+// 毎日の取得で 'game_news' に戻してしまわないため。
+// occurred_at も更新しない(お知らせの投稿日時は後から変わらない)。
+// USING 側の別名は、ほかの MERGE のように source にすると列名の source と紛らわしいので incoming にしている。
+// OUTPUT $action は MERGE が実際に行った操作("INSERT" / "UPDATE")を返す。新しく増えた件数をログに出すために使う。
+// 注意: events の一意制約はフィルター付きの索引(WHERE external_id IS NOT NULL)なので、
+// 接続の ANSI_NULLS と QUOTED_IDENTIFIER が ON でないと書き込みが失敗する。
+// tedious の既定値はどちらも ON(接続時に set ansi_nulls on などを送る)なので、ここでは何も設定しない。
+async function upsertEvent(event) {
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input("occurred_at", sql.DateTime2, new Date(event.occurred_at))
+    .input("kind", sql.NVarChar(20), event.kind)
+    .input("title", sql.NVarChar(300), event.title)
+    .input("url", sql.NVarChar(500), event.url)
+    .input("source", sql.NVarChar(20), event.source)
+    .input("external_id", sql.NVarChar(100), event.external_id)
+    .query(`
+      MERGE events AS target
+      USING (SELECT @source AS source, @external_id AS external_id) AS incoming
+        ON target.source = incoming.source AND target.external_id = incoming.external_id
+      WHEN MATCHED THEN
+        UPDATE SET title = @title, url = @url
+      WHEN NOT MATCHED THEN
+        INSERT (occurred_at, kind, title, url, source, external_id)
+        VALUES (@occurred_at, @kind, @title, @url, @source, @external_id)
+      OUTPUT $action AS action;
+    `);
+
+  return result.recordset[0].action;
 }
 
 // ============================================================
@@ -548,12 +588,30 @@ async function listFetchLogs(limit) {
   return result.recordset;
 }
 
+// 外部の出来事を古い順に返す(グラフに出来事の印を付けるため)
+// 入力: なし
+// 出力: [{ event_id, occurred_at, kind, title, url, source, mod_id }, ...]
+// 件数は 1 か月に数件ずつしか増えないので、期間では絞らず全件返す。
+// external_id(取得元での ID)と created_at は画面で使わないので返さない。
+async function listEvents() {
+  const pool = await getPool();
+
+  const result = await pool.request().query(`
+    SELECT event_id, occurred_at, kind, title, url, source, mod_id
+    FROM events
+    ORDER BY occurred_at ASC, event_id ASC;
+  `);
+
+  return result.recordset;
+}
+
 module.exports = {
   upsertMod,
   upsertModVersion,
   insertVersionSnapshot,
   insertSnapshot,
   insertFetchLog,
+  upsertEvent,
   listMods,
   getModById,
   getModSummary,
@@ -564,6 +622,7 @@ module.exports = {
   listFailedFetchRuns,
   listSnapshotHistory,
   listFetchLogs,
+  listEvents,
   // テスト用(DB には接続しない)
   buildPoolConfig,
   describeConnectionError,
