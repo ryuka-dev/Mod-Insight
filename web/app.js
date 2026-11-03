@@ -38,13 +38,13 @@ const PLATFORM_LABELS = {
     name: "Thunderstore",
     rating: "評価",
     ratingSub: "Thunderstore の rating_score",
-    downloadsNote: "縦線はバージョンの公開日。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。",
+    downloadsNote: "灰色の細い縦線(v1.2.3 などの名前つき)はバージョンの公開日。ほかの縦線はゲーム本体の出来事で、「日ごとの増加」の下に一覧があります。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。",
   },
   nexusmods: {
     name: "Nexus Mods",
     rating: "推薦数",
     ratingSub: "Nexus Mods の endorsements",
-    downloadsNote: "縦線はバージョン(ファイル)の公開日。Nexus Mods はファイル単位でダウンロード数を数えるため、同じバージョン番号のファイルは合算しています。",
+    downloadsNote: "灰色の細い縦線(v1.2.3 などの名前つき)はバージョン(ファイル)の公開日。ほかの縦線はゲーム本体の出来事で、「日ごとの増加」の下に一覧があります。Nexus Mods はファイル単位でダウンロード数を数えるため、同じバージョン番号のファイルは合算しています。",
   },
 };
 
@@ -65,16 +65,18 @@ const state = {
   events: [],            // events API の結果(古い順。取れなければ空のまま)
 };
 
-// 出来事の種類(events.kind)ごとの、グラフの縦線の描き方
+// 出来事の種類(events.kind)ごとの、グラフの縦線の描き方と一覧での呼び名
 //   color  線の色(CSS 変数の名前)
 //   width  線の太さ(px)
 //   dash   破線のパターン [線の長さ, すき間](空なら実線)
+//   label  一覧に出す種類の名前
 // 大型アップデートを一番目立たせ、パッチ、お知らせ・メモの順に控えめにする
+// (一覧の線の見本は style.css の .event-swatch-○○ で、同じ色・破線にそろえている)
 const EVENT_KINDS = {
-  game_major: { color: "--event-strong", width: 2, dash: [] },
-  game_patch: { color: "--event-strong", width: 1.5, dash: [6, 4] },
-  game_news: { color: "--event-subtle", width: 1.5, dash: [2, 3] },
-  note: { color: "--event-subtle", width: 1.5, dash: [2, 3] },
+  game_major: { color: "--event-strong", width: 2, dash: [], label: "大型アップデート" },
+  game_patch: { color: "--event-strong", width: 1.5, dash: [6, 4], label: "パッチ" },
+  game_news: { color: "--event-subtle", width: 1.5, dash: [2, 3], label: "お知らせ" },
+  note: { color: "--event-subtle", width: 1.5, dash: [2, 3], label: "メモ" },
 };
 
 // 日本時間と UTC の差(ミリ秒)
@@ -110,6 +112,9 @@ const el = {
   // 日ごとの増加
   dailyCanvas: document.getElementById("dailyChart"),
   dailyTableBody: document.querySelector("#dailyTable tbody"),
+  // 期間内の出来事
+  eventSection: document.getElementById("eventSection"),
+  eventList: document.getElementById("eventList"),
   // 選択中 mod の詳細
   detailTitle: document.getElementById("detailTitle"),
   statDownloads: document.getElementById("statDownloads"),
@@ -377,7 +382,7 @@ const versionMarkerPlugin = {
   },
 };
 
-// 出来事の種類 → 描き方(EVENT_KINDS)。知らない種類が来たら一番控えめな「メモ」として扱う
+// 出来事の種類 → 描き方と呼び名(EVENT_KINDS)。知らない種類が来たら一番控えめな「メモ」として扱う
 function eventKind(kind) {
   return EVENT_KINDS[kind] || EVENT_KINDS.note;
 }
@@ -410,6 +415,7 @@ function drawEventLabel(ctx, text, x, xScale, yScale) {
 //               false なら出来事の時刻そのままの位置に置く
 // バージョン公開日の線(versionMarkerPlugin、灰色の細い実線)と見分けられるよう、色・太さ・破線を変えている。
 // 見出しは大型アップデートだけに付ける(パッチは数日のうちに続けて出ることがあり、文字が重なるため)。
+// ほかの出来事は「日ごとの増加」の下の一覧(renderEventList)で説明する。
 // afterDatasetsDraw(データを描いた直後)で描くので、マウスを乗せた時のツールチップは線より手前に出る
 const eventMarkerPlugin = {
   id: "eventMarker",
@@ -477,6 +483,7 @@ async function loadOverview() {
     renderOverviewTable();
     renderDailyChart();
     renderDailyTable();
+    renderEventList();
   } catch (err) {
     showError(`全 mod の一覧の取得に失敗しました(${err.message})`);
   }
@@ -563,11 +570,14 @@ async function loadEvents() {
     console.warn(`出来事の取得に失敗したため、出来事なしで表示します(${err.message})`);
     state.events = [];
   }
-  // グラフが先に描かれていたら、出来事の縦線を足して描き直す(後から描かれるグラフは描画時に state.events を見る)
+  // グラフや一覧が先に描かれていたら、出来事を足して描き直す(後から描かれるものは描画時に state.events を見る)
   for (const chart of [charts.totals, charts.daily, charts.downloads]) {
     if (chart) {
       chart.update();
     }
+  }
+  if (state.overview) {
+    renderEventList();
   }
 }
 
@@ -827,6 +837,87 @@ function renderDailyTable() {
     tr.appendChild(makeCell(d.average_7d === null ? "–" : formatNumber(d.average_7d), "num"));
     tr.appendChild(makeCell(formatNumber(d.mod_count), "num"));
     el.dailyTableBody.appendChild(tr);
+  }
+}
+
+// ============================================================
+// 描画: 期間内の出来事
+// ============================================================
+
+// 一覧に出す出来事の期間の始まり(ミリ秒)
+// 期間ボタンで選んだ開始。全期間なら記録の最初の取得日時(記録を始める前のお知らせまで並べないため)。
+// 記録がまだ 1 件も無ければ null(絞り込まない)
+function eventListFrom() {
+  if (state.rangeFrom !== null) {
+    return state.rangeFrom;
+  }
+  const totals = state.overview.totals;
+  return totals.length > 0 ? Date.parse(totals[0].captured_at) : null;
+}
+
+// 期間内の出来事の一覧(新しい出来事が上)。グラフの縦線が何の印かを説明する
+// 出すもの: ゲーム全体の出来事と、選択中の配布サイトの mod に関する出来事(mod の名前を添える)
+// 1 件も無ければ、凡例ごと一覧を隠す
+function renderEventList() {
+  clearTable(el.eventList);
+  const from = eventListFrom();
+  const events = state.events.filter((event) => {
+    if (from !== null && !(Date.parse(event.occurred_at) >= from)) {
+      return false;
+    }
+    if (event.mod_id === null) {
+      return true;
+    }
+    const mod = state.mods.find((m) => m.mod_id === event.mod_id);
+    return mod !== undefined && mod.platform === state.platform;
+  });
+
+  el.eventSection.hidden = events.length === 0;
+
+  for (const event of [...events].reverse()) {
+    const li = document.createElement("li");
+
+    // 線の見本(グラフの縦線と同じ色・破線)。知らない種類は「メモ」と同じ見た目にする
+    const swatch = document.createElement("span");
+    swatch.className = `event-swatch event-swatch-${EVENT_KINDS[event.kind] ? event.kind : "note"}`;
+    li.appendChild(swatch);
+
+    // 日付は日本時間(日ごとの増加の棒と同じ日になる)
+    const date = document.createElement("span");
+    date.className = "event-date";
+    date.textContent = formatDate(`${jstDateKey(event.occurred_at)}T00:00:00Z`);
+    li.appendChild(date);
+
+    const kind = document.createElement("span");
+    kind.className = "event-kind";
+    kind.textContent = eventKind(event.kind).label;
+    li.appendChild(kind);
+
+    // 見出し。詳細のページがあれば新しいタブで開くリンクにする
+    // (rel="noopener noreferrer": 開いた先のページにこのページを操作させず、参照元も送らない)
+    if (event.url) {
+      const link = document.createElement("a");
+      link.href = event.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = event.title;
+      li.appendChild(link);
+    } else {
+      const title = document.createElement("span");
+      title.textContent = event.title;
+      li.appendChild(title);
+    }
+
+    // 特定の mod の出来事なら、どの mod かを添える
+    if (event.mod_id !== null) {
+      const mod = state.mods.find((m) => m.mod_id === event.mod_id);
+      const modName = document.createElement("span");
+      modName.className = "event-mod";
+      modName.textContent = `(${mod.name})`;
+      li.appendChild(modName);
+    }
+
+    el.eventList.appendChild(li);
   }
 }
 

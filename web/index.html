@@ -12,7 +12,7 @@
       1. ヘッダー        タイトルと一言説明
       2. フィルター行    配布サイトと期間。全 mod の一覧と、下の mod の詳細の両方に効く
       3. 全 mod の状況   合計の数字、合計の推移、mod ごとの一覧表(行クリックで 4 の mod が切り替わる)
-      4. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均
+      4. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均、期間内のゲームの出来事(グラフの縦線の説明)
       5. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別、公開の前後、バージョン履歴
       6. 運用状況        運用費用と取得ジョブの実行記録(システム全体の記録なので、上のどの選択も効かない)
     データはすべて app.js が API から取ってきて、この HTML の空の要素に流し込む。
@@ -89,6 +89,12 @@
       <div class="chart-wrap chart-wrap-small">
         <canvas id="dailyChart" role="img" aria-label="日ごとのダウンロード増加数の棒グラフと 7 日平均の折れ線"></canvas>
       </div>
+      <!-- 期間内の出来事。グラフの縦線が何の印かを説明する(期間内に 1 件も無ければ app.js が隠す) -->
+      <div id="eventSection" class="event-section" hidden>
+        <h3 class="event-title">期間内の出来事</h3>
+        <p class="card-note">グラフの縦線: <span class="event-swatch event-swatch-game_major"></span>ゲームの大型アップデート <span class="event-swatch event-swatch-game_patch"></span>パッチ <span class="event-swatch event-swatch-game_news"></span>お知らせ・メモ。日付は日本時間です。</p>
+        <ul id="eventList" class="event-list"></ul>
+      </div>
       <details class="table-details">
         <summary>データを表で見る</summary>
         <div class="table-scroll">
@@ -136,7 +142,7 @@
 
     <section class="card">
       <h2 class="card-title">ダウンロード数の推移</h2>
-      <p class="card-note" id="downloadsNote">縦線はバージョンの公開日。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。</p>
+      <p class="card-note" id="downloadsNote">灰色の細い縦線(v1.2.3 などの名前つき)はバージョンの公開日。ほかの縦線はゲーム本体の出来事で、「日ごとの増加」の下に一覧があります。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。</p>
       <div class="chart-wrap">
         <canvas id="downloadsChart" role="img" aria-label="ダウンロード数の折れ線グラフ"></canvas>
       </div>
