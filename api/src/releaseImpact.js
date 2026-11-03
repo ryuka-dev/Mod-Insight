@@ -56,23 +56,19 @@ function averageOf(daily, keys) {
   return { days: found.length, average: round1(sum / found.length) };
 }
 
-// 公開の前後を計算する
-// 入力: rows(バージョン別の時系列 = [{ version_number, release_date, captured_at, download_count }, ...]、全期間)
-// 出力: [{
-//         version_number,
-//         release_date,   "YYYY-MM-DD"(配布サイトが返した公開日。参考表示用)
-//         first_day,      "YYYY-MM-DD"(公開 1 日目 = 初めて記録に現れた日)
-//         before: { days, average },  公開前 7 日の 1 日あたりのダウンロード(日数が足りなければある分だけ)
-//         after:  { days, average },  公開 1 日目から 7 日(次の公開の前日まで)
-//         change,         after.average − before.average(どちらかが null なら null)
-//         share: [{ date, day, new_version, total, share }, ...]
-//           day = 公開から何日目か(1 始まり)、new_version = 新しい版のその日の増加、
-//           total = その日の全バージョンの増加、share = new_version / total の %(total が 0 以下なら null)
-//       }, ...]  ※ 新しい公開が先
-function buildReleaseImpact(rows) {
+// バージョン別の時系列を「日ごと・バージョンごとの増加」に組み替える
+// (buildReleaseImpact と eventImpact.js の両方が使う。上の「計算のしかた」の 1〜3)
+// 入力: rows(バージョン別の時系列 = [{ version_number, captured_at, download_count, ... }, ...]、全期間)
+// 出力: {
+//   byDay:     日付 → Map(バージョン → { time, count })   その日の最後の取得の値
+//   daily:     日付 → { total, byVersion: Map(バージョン → 増加) }
+//              前日にその mod の記録が無い日は入らない。前日に無かったバージョンは前日 0 として数える
+//   firstDays: バージョン → 初めて記録に現れた日 "YYYY-MM-DD"
+//              (Map の並び = 現れた日の古い順。同じ日に現れた版どうしは rows の並び順)
+// }
+function buildVersionDays(rows) {
   // 1. 日ごと・バージョンごとの最後の値: 日付 → Map(バージョン → { time, count })
   const byDay = new Map();
-  const releaseDates = new Map();  // バージョン → release_date
   for (const row of rows) {
     const key = dayKey(row.captured_at);
     const time = new Date(row.captured_at).getTime();
@@ -84,9 +80,6 @@ function buildReleaseImpact(rows) {
     const current = versions.get(row.version_number);
     if (!current || time > current.time) {
       versions.set(row.version_number, { time: time, count: row.download_count });
-    }
-    if (!releaseDates.has(row.version_number)) {
-      releaseDates.set(row.version_number, row.release_date ? dayKey(row.release_date) : null);
     }
   }
 
@@ -115,6 +108,34 @@ function buildReleaseImpact(rows) {
       if (!firstDays.has(version)) {
         firstDays.set(version, key);
       }
+    }
+  }
+
+  return { byDay: byDay, daily: daily, firstDays: firstDays };
+}
+
+// 公開の前後を計算する
+// 入力: rows(バージョン別の時系列 = [{ version_number, release_date, captured_at, download_count }, ...]、全期間)
+// 出力: [{
+//         version_number,
+//         release_date,   "YYYY-MM-DD"(配布サイトが返した公開日。参考表示用)
+//         first_day,      "YYYY-MM-DD"(公開 1 日目 = 初めて記録に現れた日)
+//         before: { days, average },  公開前 7 日の 1 日あたりのダウンロード(日数が足りなければある分だけ)
+//         after:  { days, average },  公開 1 日目から 7 日(次の公開の前日まで)
+//         change,         after.average − before.average(どちらかが null なら null)
+//         share: [{ date, day, new_version, total, share }, ...]
+//           day = 公開から何日目か(1 始まり)、new_version = 新しい版のその日の増加、
+//           total = その日の全バージョンの増加、share = new_version / total の %(total が 0 以下なら null)
+//       }, ...]  ※ 新しい公開が先
+function buildReleaseImpact(rows) {
+  // 1〜3. 日ごと・バージョンごとの値、日ごとの増加、バージョンごとの公開 1 日目
+  const { byDay, daily, firstDays } = buildVersionDays(rows);
+
+  // バージョン → release_date(最初に出てきた行の値)
+  const releaseDates = new Map();
+  for (const row of rows) {
+    if (!releaseDates.has(row.version_number)) {
+      releaseDates.set(row.version_number, row.release_date ? dayKey(row.release_date) : null);
     }
   }
 
@@ -171,4 +192,5 @@ function buildReleaseImpact(rows) {
   return results.reverse();
 }
 
-module.exports = { buildReleaseImpact };
+// buildVersionDays と addDays は eventImpact.js も使う(「日」と「増加」の数え方をそろえるため)
+module.exports = { buildReleaseImpact, buildVersionDays, addDays };

@@ -18,6 +18,8 @@
 //   4. GET /api/fetch/logs と GET /api/costs は mod に関係ないので起動時に 1 回だけ取る
 //   5. GET /api/events(ゲームのアップデートなど外部の出来事)も起動時に 1 回だけ取り、
 //      合計の推移・日ごとの増加・mod のダウンロード数のグラフに縦線で重ねる
+//   6. GET /api/event-impacts?platform=(ゲーム更新ごとの mod の対応状況)は起動時と
+//      プラットフォームが変わった時に取る(期間には関係しない)
 //
 // 画面に出す文字列はすべて textContent で入れる(API から来た文字列を
 // innerHTML に入れると、万一 HTML が混ざっていたときにそのまま実行されてしまうため)。
@@ -63,6 +65,8 @@ const state = {
   releases: [],          // releases API の結果(新しい公開が先)
   costs: null,           // costs API の結果(取れなければ null)
   events: [],            // events API の結果(古い順。取れなければ空のまま)
+  eventImpacts: [],      // event-impacts API の結果(新しい更新が先。取れなければ空のまま)
+  eventImpactId: null,   // 「ゲーム更新への対応」で選択中の更新の event_id
 };
 
 // 出来事の種類(events.kind)ごとの、グラフの縦線の描き方と一覧での呼び名
@@ -115,6 +119,11 @@ const el = {
   // 期間内の出来事
   eventSection: document.getElementById("eventSection"),
   eventList: document.getElementById("eventList"),
+  // ゲーム更新への対応
+  eventImpactCard: document.getElementById("eventImpactCard"),
+  eventImpactSelect: document.getElementById("eventImpactSelect"),
+  eventImpactSummary: document.getElementById("eventImpactSummary"),
+  eventImpactTableBody: document.querySelector("#eventImpactTable tbody"),
   // 選択中 mod の詳細
   detailTitle: document.getElementById("detailTitle"),
   statDownloads: document.getElementById("statDownloads"),
@@ -522,7 +531,7 @@ async function loadMod() {
     renderReleaseTable();
     renderReleaseShareChart();
     renderVersionTable();
-    highlightSelectedOverviewRow();
+    highlightSelectedModRows();
   } catch (err) {
     showError(`データの取得に失敗しました(${err.message})`);
   } finally {
@@ -581,6 +590,36 @@ async function loadEvents() {
   }
 }
 
+// ゲーム更新ごとの mod の対応状況(選択中のプラットフォームの分。期間には関係しない)
+// 失敗した時(/api/event-impacts がまだ無い環境の 404 など)や、対象の更新が 1 件も無い時はカードごと隠す。
+// 補足の分析なので、画面にエラーは出さずコンソールにだけ残す(loadEvents と同じ扱い)
+async function loadEventImpacts() {
+  const platform = state.platform;
+  let impacts;
+  try {
+    impacts = await fetchJson(`/event-impacts?platform=${encodeURIComponent(platform)}`);
+  } catch (err) {
+    console.warn(`ゲーム更新への対応の取得に失敗したため、表示しません(${err.message})`);
+    impacts = [];
+  }
+  // 待っている間にプラットフォームが切り替わっていたら、古い応答は捨てる(新しいほうの応答で描く)
+  if (platform !== state.platform) {
+    return;
+  }
+  state.eventImpacts = Array.isArray(impacts) ? impacts : [];
+  el.eventImpactCard.hidden = state.eventImpacts.length === 0;
+  if (state.eventImpacts.length === 0) {
+    return;
+  }
+  // 選んでいた更新がこのプラットフォームにもあればそのまま。無ければ最新の大型アップデート(無ければ最新の更新)
+  if (!state.eventImpacts.some((impact) => impact.event_id === state.eventImpactId)) {
+    const major = state.eventImpacts.find((impact) => impact.kind === "game_major");
+    state.eventImpactId = (major || state.eventImpacts[0]).event_id;
+  }
+  fillEventImpactSelect();
+  renderEventImpact();
+}
+
 // mod を切り替える(セレクトボックスと一覧表の行クリックの両方から呼ばれる)
 function selectMod(modId) {
   state.modId = modId;
@@ -626,6 +665,7 @@ async function selectPlatform(platform) {
   }
   renderPlatformLabels();
   fillModSelect();
+  loadEventImpacts();
   await loadOverview();
 
   const modId = defaultModId(platform);
@@ -725,13 +765,15 @@ function renderOverviewTable() {
     });
     el.overviewTableBody.appendChild(tr);
   }
-  highlightSelectedOverviewRow();
+  highlightSelectedModRows();
 }
 
-// 一覧表の中で、いま詳細に表示している mod の行に印を付ける
-function highlightSelectedOverviewRow() {
-  for (const tr of el.overviewTableBody.querySelectorAll("tr")) {
-    tr.classList.toggle("is-selected", tr.dataset.modId === String(state.modId));
+// 一覧表と「ゲーム更新への対応」の表の中で、いま詳細に表示している mod の行に印を付ける
+function highlightSelectedModRows() {
+  for (const tbody of [el.overviewTableBody, el.eventImpactTableBody]) {
+    for (const tr of tbody.querySelectorAll("tr")) {
+      tr.classList.toggle("is-selected", tr.dataset.modId === String(state.modId));
+    }
   }
 }
 
@@ -919,6 +961,106 @@ function renderEventList() {
 
     el.eventList.appendChild(li);
   }
+}
+
+// ============================================================
+// 描画: ゲーム更新への対応
+// ============================================================
+
+// 選択中の更新(state.eventImpactId)の結果。見つからなければ null
+function selectedEventImpact() {
+  return state.eventImpacts.find((impact) => impact.event_id === state.eventImpactId) || null;
+}
+
+// 更新を選ぶセレクトボックスの中身を入れ替える("2026/10/28 大型アップデート SULFUR 1.0 OUT NOW" の形)
+function fillEventImpactSelect() {
+  while (el.eventImpactSelect.firstChild) {
+    el.eventImpactSelect.removeChild(el.eventImpactSelect.firstChild);
+  }
+  for (const impact of state.eventImpacts) {
+    const option = document.createElement("option");
+    option.value = String(impact.event_id);
+    option.textContent = `${formatDate(`${impact.day}T00:00:00Z`)} ${eventKind(impact.kind).label} ${impact.title}`;
+    el.eventImpactSelect.appendChild(option);
+  }
+  el.eventImpactSelect.value = String(state.eventImpactId);
+}
+
+// 合計の 1 項目(「見出し: 値」)を作る。値だけ太字にする
+function makeSummaryItem(label, value) {
+  const li = document.createElement("li");
+  li.appendChild(document.createTextNode(`${label}: `));
+  const strong = document.createElement("strong");
+  strong.textContent = value;
+  li.appendChild(strong);
+  return li;
+}
+
+// 新しい版の最初の 2 日。翌日の記録がまだ無ければ "31(1 日)" のように足した日数を添える
+function formatFirstTwoDays(row) {
+  if (row.next_first_2_days === null) {
+    return "–";
+  }
+  const days = row.next_days_counted < 2 ? `(${row.next_days_counted} 日)` : "";
+  return `${formatNumber(row.next_first_2_days)}${days}`;
+}
+
+// 更新後に出した版(旧版以外)がその日のダウンロードの 90% を超えるまでの日数の表示
+// 0 = 記録に出た日のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
+function formatDaysTo90(row) {
+  if (row.next_version === null) {
+    return "–";
+  }
+  if (row.days_to_90pct === null) {
+    return "未達";
+  }
+  return row.days_to_90pct === 0 ? "当日" : `${row.days_to_90pct} 日後`;
+}
+
+// 選択中の更新の合計と、mod ごとの表を描く
+function renderEventImpact() {
+  const impact = selectedEventImpact();
+  clearTable(el.eventImpactSummary);
+  clearTable(el.eventImpactTableBody);
+  if (impact === null) {
+    return;
+  }
+
+  const summary = impact.summary;
+  el.eventImpactSummary.appendChild(makeSummaryItem("更新後に新しい版を出した mod",
+    `${formatNumber(summary.next_count)} / ${formatNumber(summary.mod_count)}`));
+  el.eventImpactSummary.appendChild(makeSummaryItem("新しい版までの日数(中央値)",
+    summary.median_days_to_next === null ? "–" : `${formatNumber(summary.median_days_to_next)} 日`));
+  el.eventImpactSummary.appendChild(makeSummaryItem("その間の旧版のダウンロード(合計、多めの見積もり)",
+    formatNumber(summary.old_downloads_total)));
+
+  // 行の並びは API のまま(新しい版を出した mod が日数の短い順に先、出していない mod は旧版のダウンロードの多い順に後)
+  for (const row of impact.mods) {
+    const tr = document.createElement("tr");
+    tr.dataset.modId = String(row.mod_id);
+    tr.appendChild(makeCell(row.name));
+    tr.appendChild(makeCell(`v${row.version_at_event}`));
+    if (row.next_version === null) {
+      tr.appendChild(makeCell("未公開", "not-released"));
+      tr.appendChild(makeCell("–"));
+      tr.appendChild(makeCell("–", "num"));
+    } else {
+      tr.appendChild(makeCell(`v${row.next_version}`));
+      tr.appendChild(makeCell(formatDate(`${row.next_first_day}T00:00:00Z`)));
+      tr.appendChild(makeCell(`${row.days_to_next} 日`, "num"));
+    }
+    // 旧版のダウンロードには、足した日数を添える(前日の記録が無い日は足していない)
+    tr.appendChild(makeCell(`${formatNumber(row.old_downloads)}(${row.old_days} 日)`, "num"));
+    tr.appendChild(makeCell(formatFirstTwoDays(row), "num"));
+    tr.appendChild(makeCell(formatDaysTo90(row), "num"));
+    tr.addEventListener("click", () => {
+      selectMod(row.mod_id);
+      // 詳細は表よりずっと下にあるので、切り替わったことが見えるようにそこまで動かす
+      el.detailTitle.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    el.eventImpactTableBody.appendChild(tr);
+  }
+  highlightSelectedModRows();
 }
 
 // ============================================================
@@ -1505,6 +1647,11 @@ async function init() {
     selectMod(Number(el.modSelect.value));
   });
 
+  el.eventImpactSelect.addEventListener("change", () => {
+    state.eventImpactId = Number(el.eventImpactSelect.value);
+    renderEventImpact();
+  });
+
   for (const button of el.platformButtons) {
     button.addEventListener("click", () => {
       if (button.dataset.platform !== state.platform) {
@@ -1534,6 +1681,7 @@ async function init() {
   loadFetchLogs();
   loadCosts();
   loadEvents();
+  loadEventImpacts();
   if (requestedMod) {
     // URL で指定された mod は、一覧を待たずに同時に取りに行く
     state.modId = requestedMod.mod_id;
