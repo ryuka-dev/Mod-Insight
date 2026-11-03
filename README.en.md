@@ -46,6 +46,7 @@ The **Operations** section (運用状況) at the bottom of the page shows runnin
 | Which mods are growing lately? | **Increase in period** (期間内の増加) column of the table | Per mod, "latest value − first value after the period start" |
 | Did an update push downloads up? | Trend chart in the mod detail (vertical lines = version release dates) | Time series line with release dates overlaid |
 | Was a rise or drop caused by the game itself rather than a mod? | Vertical lines on the trend and daily-increase charts (major update = solid, patch = dashed, news = dotted) and the event list under **Daily increase** | The game's Steam announcements (imported daily) and hand-written notes, placed by their date in Japan time |
+| After a game update, how many days did each mod take to ship a new version, and how often was the pre-update version downloaded meanwhile? | **Response to game updates** (ゲーム更新への対応): pick an update to see a per-mod table and totals (the period selection does not apply) | Days from the game's major update or patch (date in Japan time) to the day the first version published after it appears in the records, and the sum of the old versions' daily increases in between (both end days included, so an upper-bound estimate). Whether a mod was actually broken cannot be told |
 | How much of the downloads moved to the new version? | Stacked chart of downloads by version | Time series per version. The latest 4 versions are shown individually, older ones as "other" |
 | Did a release increase downloads, and was the new version picked up quickly? | **Before and after release** (公開の前後) table and share chart in the mod detail | Downloads per day for 7 days before and after a release, and the new version's share of each day's downloads (see "Decisions on data handling" below) |
 | Do the platforms react differently? | The **platform** switch | The same mod aggregated separately for Thunderstore and Nexus Mods |
@@ -276,6 +277,7 @@ Base URL: `https://mod-insight-ryuka-hrhbbdauc0ezbfc7.eastasia-01.azurewebsites.
 | GET | `/mods/{modId}/releases` | Downloads per day for 7 days before and after each version release, and the new version's share (up to 14 days after release). Not filtered by period |
 | GET | `/fetch/logs` | Fetch job run history |
 | GET | `/events` | List of external events (game announcements, hand-written notes), oldest first, all of them. Used for markers on the charts |
+| GET | `/event-impacts?platform=` | Per game major update or patch, each mod's response (first version published after it, days until then, old-version downloads in between, the new version's first 2 days, days until it passes 90%) plus totals, newest update first. `platform` is `thunderstore` / `nexusmods` (omit for both) |
 | GET | `/costs` | This system's running costs (daily, per service, up to the last finalized day). Served only from the cache written by the fetch job |
 | POST | `/fetch/run` | Run the fetch job once, now (requires the `x-functions-key` header) |
 
@@ -308,12 +310,13 @@ Investigations of problems in production (symptoms, steps, root cause, decision)
 ```
 Mod-Insight/
   api/                         Azure Functions project
-    src/functions/             One file per function (11 HTTP APIs + 1 timer)
+    src/functions/             One file per function (12 HTTP APIs + 1 timer)
     src/platforms/             Per-site adapters (API response → common shape)
     src/fetchJob.js            The fetch job itself (called from both the timer and the manual run)
     src/cache.js               Blob Storage cache of GET API responses (read and rebuild)
     src/dailyIncrease.js       Daily increase calculation (also defines where a "day" starts and ends)
     src/releaseImpact.js       Before/after release calculation
+    src/eventImpact.js         Per-game-update response of each mod
     src/steamNews.js           Fetches the game's announcements from Steam (API response → event shape)
     src/costs.js               Fetches running costs from Cost Management into costs.json
     src/db.js                  All SQL lives here
