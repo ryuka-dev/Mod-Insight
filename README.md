@@ -43,6 +43,7 @@
 | 毎日どれくらい増えているか、増え方は変わったか | 「日ごとの増加」の棒グラフと 7 日平均の線 | mod ごとに「当日の値 − 前日の値」を出して全 mod で合計(下の「データの扱い」参照) |
 | 最近伸びているのはどの mod か | 一覧表の「期間内の増加」 | mod ごとに「最新の値 − 期間開始後で最初の値」 |
 | アップデートがダウンロードを押し上げたか | mod 詳細の推移グラフ(縦線 = バージョン公開日) | 時系列の折れ線にバージョン公開日を重ねて表示 |
+| 増減の理由が mod ではなくゲーム本体の出来事か | 推移と日ごとの増加のグラフの縦線(大型アップデート = 実線、パッチ = 破線、お知らせ = 点線)と、「日ごとの増加」の下の出来事の一覧 | Steam のゲームのお知らせ(毎日取り込み)と手入力のメモを、日本時間の日付で重ねて表示 |
 | 新しいバージョンにダウンロードがどれくらい移ったか | バージョン別ダウンロード数の積み上げグラフ | バージョンごとの時系列。最新 4 バージョンを個別、それより古いものは「その他」 |
 | 公開でダウンロードが増えたか、新しい版はすぐ選ばれたか | mod 詳細の「公開の前後」の表と割合のグラフ | 公開前後 7 日の 1 日あたりのダウンロードと、その日のダウンロードに占める新しい版の割合(下の「データの扱い」参照) |
 | 配布サイトによって反応が違うか | 「配布サイト」の切り替え | 同じ mod を Thunderstore / Nexus Mods それぞれで集計 |
@@ -172,6 +173,7 @@ flowchart LR
   subgraph Sources[データ元]
     TS[Thunderstore<br/>v1 API]
     NX[Nexus Mods<br/>GraphQL v2]
+    Steam[Steam News API<br/>ゲームのお知らせ]
   end
 
   subgraph Func[Azure Functions]
@@ -195,6 +197,7 @@ flowchart LR
   Adapters --> TS
   Adapters --> NX
   Job --> DB
+  Job -.お知らせを取得.-> Steam
   Job -.取得後に作り直す.-> Blob
   Job -.運用費用を取得.-> Cost
   Api --> Blob
@@ -209,8 +212,9 @@ flowchart LR
 2. 配布サイトごとのアダプター(`api/src/platforms/`)が API を呼び、応答を共通の形 `{ name, author, external_id, download_count, rating_score, raw_json, versions[] }` に直す
 3. `api/src/fetchJob.js` がその形だけを見て DB に保存する(配布サイトの項目名は知らない)
 4. 配布サイトごとに実行結果を `fetch_logs` に 1 行残す。1 つの mod で失敗しても他の mod の保存は続ける
-5. 最後に `api/src/cache.js` が GET API の応答をすべて Blob Storage に書き直す(下記「読み取りの流れ」)
-6. ついでに `api/src/costs.js` がこのシステム自身の運用費用(リソースグループの日別・サービス別の費用)を Cost Management から取り、`costs.json` として Blob Storage に置く。費用の正本は Azure 側にあるので DB には入れない。失敗しても mod データの取得には影響しない
+5. `api/src/steamNews.js` が Steam からゲーム本体の公式のお知らせ(パッチノートなど)を最新 50 件取り、`events` テーブルに保存する。ダウンロード数の増減がゲームの出来事によるものかをグラフで確かめるため。毎日 50 件を取り直すので、失敗した日の分は翌日に取り戻せる。失敗しても mod データの取得には影響しない
+6. 最後に `api/src/cache.js` が GET API の応答をすべて Blob Storage に書き直す(下記「読み取りの流れ」)
+7. ついでに `api/src/costs.js` がこのシステム自身の運用費用(リソースグループの日別・サービス別の費用)を Cost Management から取り、`costs.json` として Blob Storage に置く。費用の正本は Azure 側にあるので DB には入れない。失敗しても mod データの取得には影響しない
 
 **読み取りの流れ**
 
@@ -246,12 +250,14 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | `snapshots` | ある取得時点の mod 1 件の値 | `captured_at`、`download_count`、`rating_score`、`raw_json` |
 | `version_snapshots` | ある取得時点のバージョン 1 つの値 | `version_id`、`captured_at`、`download_count` |
 | `fetch_logs` | 取得ジョブ 1 回 × 配布サイト 1 つの結果 | `run_at`、`platform`、`status`、`records_fetched`、`error_message` |
+| `events` | 外部の出来事 1 つ(ゲームのお知らせ、手入力のメモ) | `occurred_at`、`kind`(`game_major` / `game_patch` / `game_news` / `note`)、`title`、`url`、`source` + `external_id` で一意(手入力は除く) |
 
 | スクリプト | 内容 |
 |---|---|
 | `sql/001_create_tables.sql` | 基本の 4 テーブル |
 | `sql/002_create_version_snapshots.sql` | `version_snapshots` と `mod_versions` の一意制約 |
 | `sql/003_add_platform_to_fetch_logs.sql` | `fetch_logs.platform` |
+| `sql/004_create_events.sql` | `events`(外部の出来事)。大型アップデートの `kind` の付け替え方もここに書いてある |
 
 ## 6. REST API
 
@@ -267,6 +273,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | GET | `/mods/{modId}/version-snapshots?from=&to=` | バージョンごとのダウンロード数の時系列 |
 | GET | `/mods/{modId}/releases` | バージョン公開の前後 7 日の 1 日あたりのダウンロードと、新しい版の割合(公開から 14 日まで)。期間では絞らない |
 | GET | `/fetch/logs` | 取得ジョブの実行記録 |
+| GET | `/events` | 外部の出来事(ゲームのお知らせ、手入力のメモ)の一覧(古い順、全件)。グラフの印用 |
 | GET | `/costs` | このシステムの運用費用(日別・サービス別、集計が確定した日まで)。取得ジョブが置いたキャッシュだけから返す |
 | POST | `/fetch/run` | 取得ジョブを今すぐ 1 回実行(ヘッダー `x-functions-key` が必要) |
 
@@ -299,12 +306,13 @@ Application Insights に関数の実行記録とログが自動で集まりま�
 ```
 Mod-Insight/
   api/                         Azure Functions プロジェクト
-    src/functions/             関数 1 つにつき 1 ファイル(HTTP API 10 本 + タイマー 1 本)
+    src/functions/             関数 1 つにつき 1 ファイル(HTTP API 11 本 + タイマー 1 本)
     src/platforms/             配布サイトごとのアダプター(API の応答 → 共通の形)
     src/fetchJob.js            取得ジョブ本体(タイマーと手動実行の両方から呼ぶ)
     src/cache.js               GET API 応答の Blob Storage キャッシュ(読み・作り直し)
     src/dailyIncrease.js       日ごとの増加の計算(「日」の区切りもここで決めている)
     src/releaseImpact.js       バージョン公開の前後の計算
+    src/steamNews.js           Steam のゲームのお知らせを取る(API の応答 → 出来事の形)
     src/costs.js               運用費用を Cost Management から取って costs.json に置く
     src/db.js                  SQL をすべてここに集約
     src/httpUtil.js            パラメータの解釈とエラー応答の形

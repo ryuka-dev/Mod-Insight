@@ -16,6 +16,8 @@
 //        GET /api/mods/{id}/releases           (公開の前後。期間に関係なく全期間から計算される)
 //      を同時に取りに行き、揃ったら画面を描き直す
 //   4. GET /api/fetch/logs と GET /api/costs は mod に関係ないので起動時に 1 回だけ取る
+//   5. GET /api/events(ゲームのアップデートなど外部の出来事)も起動時に 1 回だけ取り、
+//      合計の推移・日ごとの増加・mod のダウンロード数のグラフに縦線で重ねる
 //
 // 画面に出す文字列はすべて textContent で入れる(API から来た文字列を
 // innerHTML に入れると、万一 HTML が混ざっていたときにそのまま実行されてしまうため)。
@@ -36,13 +38,13 @@ const PLATFORM_LABELS = {
     name: "Thunderstore",
     rating: "評価",
     ratingSub: "Thunderstore の rating_score",
-    downloadsNote: "縦線はバージョンの公開日。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。",
+    downloadsNote: "灰色の細い縦線(v1.2.3 などの名前つき)はバージョンの公開日。ほかの縦線はゲーム本体の出来事で、「日ごとの増加」の下に一覧があります。数値は Thunderstore の CDN キャッシュの影響で 1〜2 件程度上下することがあります。",
   },
   nexusmods: {
     name: "Nexus Mods",
     rating: "推薦数",
     ratingSub: "Nexus Mods の endorsements",
-    downloadsNote: "縦線はバージョン(ファイル)の公開日。Nexus Mods はファイル単位でダウンロード数を数えるため、同じバージョン番号のファイルは合算しています。",
+    downloadsNote: "灰色の細い縦線(v1.2.3 などの名前つき)はバージョン(ファイル)の公開日。ほかの縦線はゲーム本体の出来事で、「日ごとの増加」の下に一覧があります。Nexus Mods はファイル単位でダウンロード数を数えるため、同じバージョン番号のファイルは合算しています。",
   },
 };
 
@@ -60,7 +62,25 @@ const state = {
   versionSnapshots: [],  // version-snapshots API の結果(古い順)
   releases: [],          // releases API の結果(新しい公開が先)
   costs: null,           // costs API の結果(取れなければ null)
+  events: [],            // events API の結果(古い順。取れなければ空のまま)
 };
+
+// 出来事の種類(events.kind)ごとの、グラフの縦線の描き方と一覧での呼び名
+//   color  線の色(CSS 変数の名前)
+//   width  線の太さ(px)
+//   dash   破線のパターン [線の長さ, すき間](空なら実線)
+//   label  一覧に出す種類の名前
+// 大型アップデートを一番目立たせ、パッチ、お知らせ・メモの順に控えめにする
+// (一覧の線の見本は style.css の .event-swatch-○○ で、同じ色・破線にそろえている)
+const EVENT_KINDS = {
+  game_major: { color: "--event-strong", width: 2, dash: [], label: "大型アップデート" },
+  game_patch: { color: "--event-strong", width: 1.5, dash: [6, 4], label: "パッチ" },
+  game_news: { color: "--event-subtle", width: 1.5, dash: [2, 3], label: "お知らせ" },
+  note: { color: "--event-subtle", width: 1.5, dash: [2, 3], label: "メモ" },
+};
+
+// 日本時間と UTC の差(ミリ秒)
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 // Chart.js のインスタンス。描き直すときは destroy してから作り直す
 const charts = {
@@ -92,6 +112,9 @@ const el = {
   // 日ごとの増加
   dailyCanvas: document.getElementById("dailyChart"),
   dailyTableBody: document.querySelector("#dailyTable tbody"),
+  // 期間内の出来事
+  eventSection: document.getElementById("eventSection"),
+  eventList: document.getElementById("eventList"),
   // 選択中 mod の詳細
   detailTitle: document.getElementById("detailTitle"),
   statDownloads: document.getElementById("statDownloads"),
@@ -359,6 +382,83 @@ const versionMarkerPlugin = {
   },
 };
 
+// 出来事の種類 → 描き方と呼び名(EVENT_KINDS)。知らない種類が来たら一番控えめな「メモ」として扱う
+function eventKind(kind) {
+  return EVENT_KINDS[kind] || EVENT_KINDS.note;
+}
+
+// 出来事の日時(ISO 文字列)→ 日本時間で何日の出来事か("YYYY-MM-DD")
+// 例: 2026-10-28T13:06:51Z は日本時間 10/28 22:06 なので "2026-10-28"
+function jstDateKey(iso) {
+  return new Date(Date.parse(iso) + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// 大型アップデートの縦線の横に見出しを書く
+// 入力: ctx(キャンバス)、text(見出し)、x(縦線の位置 px)、xScale / yScale(グラフの軸)
+// 線の左側に右寄せで書く(同じ日のバージョンの名前は線の右側に出るので重ならない)。
+// 左に入りきらない時だけ右側に書く。文字の後ろを背景色で塗り、折れ線と重なっても読めるようにする
+function drawEventLabel(ctx, text, x, xScale, yScale) {
+  const width = ctx.measureText(text).width;
+  const y = yScale.top + 12;
+  const left = x - 6 - width >= xScale.left ? x - 6 - width : x + 6;
+  ctx.fillStyle = cssVar("--surface");
+  ctx.fillRect(left - 2, y - 10, width + 4, 14);
+  ctx.fillStyle = cssVar("--text-secondary");
+  ctx.textAlign = "left";
+  ctx.fillText(text, left, y);
+}
+
+// Chart.js プラグイン: 外部の出来事(ゲームのアップデートなど)の日時に縦線を描く
+// グラフごとの設定は options.plugins.eventMarker で渡す(Chart.js がフックの 3 つ目の引数 options に入れてくれる):
+//   modId       この mod に関する出来事も描く。null ならゲーム全体の出来事(mod_id が null)だけ
+//   alignToDay  true なら出来事を日本時間のその日の棒の位置に置く(日ごとの増加の棒グラフ用)。
+//               false なら出来事の時刻そのままの位置に置く
+// バージョン公開日の線(versionMarkerPlugin、灰色の細い実線)と見分けられるよう、色・太さ・破線を変えている。
+// 見出しは大型アップデートだけに付ける(パッチは数日のうちに続けて出ることがあり、文字が重なるため)。
+// ほかの出来事は「日ごとの増加」の下の一覧(renderEventList)で説明する。
+// afterDatasetsDraw(データを描いた直後)で描くので、マウスを乗せた時のツールチップは線より手前に出る
+const eventMarkerPlugin = {
+  id: "eventMarker",
+  afterDatasetsDraw(chartInstance, args, options) {
+    const xScale = chartInstance.scales.x;
+    const yScale = chartInstance.scales.y;
+    if (!xScale || !yScale || state.events.length === 0) {
+      return;
+    }
+    const ctx = chartInstance.ctx;
+    ctx.save();
+    ctx.font = "11px system-ui, sans-serif";
+
+    for (const event of state.events) {
+      // 特定の mod の出来事は、その mod のグラフにだけ描く
+      if (event.mod_id !== null && event.mod_id !== options.modId) {
+        continue;
+      }
+      const time = options.alignToDay
+        ? dailyPointTime(jstDateKey(event.occurred_at))
+        : Date.parse(event.occurred_at);
+      // 表示中の範囲の外にある出来事は描かない(日時が読めず NaN になったものもここで外れる)
+      if (!(time >= xScale.min && time <= xScale.max)) {
+        continue;
+      }
+      const x = xScale.getPixelForValue(time);
+      const kind = eventKind(event.kind);
+      ctx.strokeStyle = cssVar(kind.color);
+      ctx.lineWidth = kind.width;
+      ctx.setLineDash(kind.dash);
+      ctx.beginPath();
+      ctx.moveTo(x, yScale.top);
+      ctx.lineTo(x, yScale.bottom);
+      ctx.stroke();
+      if (event.kind === "game_major") {
+        ctx.setLineDash([]);
+        drawEventLabel(ctx, event.title, x, xScale, yScale);
+      }
+    }
+    ctx.restore();
+  },
+};
+
 // ============================================================
 // データ取得
 // ============================================================
@@ -383,6 +483,7 @@ async function loadOverview() {
     renderOverviewTable();
     renderDailyChart();
     renderDailyTable();
+    renderEventList();
   } catch (err) {
     showError(`全 mod の一覧の取得に失敗しました(${err.message})`);
   }
@@ -456,6 +557,28 @@ async function loadCosts() {
   renderCostTiles();
   renderCostChart();
   renderCostTable();
+}
+
+// 外部の出来事(mod にも期間にも関係なく全件で数十件なので、起動時に 1 回だけ全部取る)
+// 失敗した時(/api/events がまだ無い環境の 404 など)は出来事なしとして扱い、ほかの表示は今までどおりにする。
+// グラフの補足情報なので、画面にエラーは出さずコンソールにだけ残す
+async function loadEvents() {
+  try {
+    const events = await fetchJson("/events");
+    state.events = Array.isArray(events) ? events : [];
+  } catch (err) {
+    console.warn(`出来事の取得に失敗したため、出来事なしで表示します(${err.message})`);
+    state.events = [];
+  }
+  // グラフや一覧が先に描かれていたら、出来事を足して描き直す(後から描かれるものは描画時に state.events を見る)
+  for (const chart of [charts.totals, charts.daily, charts.downloads]) {
+    if (chart) {
+      chart.update();
+    }
+  }
+  if (state.overview) {
+    renderEventList();
+  }
 }
 
 // mod を切り替える(セレクトボックスと一覧表の行クリックの両方から呼ばれる)
@@ -565,10 +688,11 @@ function renderTotalsChart() {
             label: (item) => `合計 ${formatNumber(item.parsed.y)} ダウンロード`,
           },
         },
+        eventMarker: { modId: null, alignToDay: false },  // ゲーム全体の出来事だけを、時刻どおりの位置に
       },
       scales: { x: timeAxisOptions(), y: countAxisOptions() },
     },
-    plugins: [crosshairPlugin],
+    plugins: [eventMarkerPlugin, crosshairPlugin],
   });
 }
 
@@ -687,12 +811,14 @@ function renderDailyChart() {
             label: (item) => `${item.dataset.label}: ${item.parsed.y === null ? "–" : formatSigned(item.parsed.y)}`,
           },
         },
+        eventMarker: { modId: null, alignToDay: true },  // ゲーム全体の出来事だけを、日本時間のその日の棒の位置に
       },
       scales: {
         x: { ...timeAxisOptions(), offset: true },  // offset: 両端の棒が半分切れないように余白を取る
         y: { ...countAxisOptions(), beginAtZero: true },
       },
     },
+    plugins: [eventMarkerPlugin],
   });
 }
 
@@ -711,6 +837,87 @@ function renderDailyTable() {
     tr.appendChild(makeCell(d.average_7d === null ? "–" : formatNumber(d.average_7d), "num"));
     tr.appendChild(makeCell(formatNumber(d.mod_count), "num"));
     el.dailyTableBody.appendChild(tr);
+  }
+}
+
+// ============================================================
+// 描画: 期間内の出来事
+// ============================================================
+
+// 一覧に出す出来事の期間の始まり(ミリ秒)
+// 期間ボタンで選んだ開始。全期間なら記録の最初の取得日時(記録を始める前のお知らせまで並べないため)。
+// 記録がまだ 1 件も無ければ null(絞り込まない)
+function eventListFrom() {
+  if (state.rangeFrom !== null) {
+    return state.rangeFrom;
+  }
+  const totals = state.overview.totals;
+  return totals.length > 0 ? Date.parse(totals[0].captured_at) : null;
+}
+
+// 期間内の出来事の一覧(新しい出来事が上)。グラフの縦線が何の印かを説明する
+// 出すもの: ゲーム全体の出来事と、選択中の配布サイトの mod に関する出来事(mod の名前を添える)
+// 1 件も無ければ、凡例ごと一覧を隠す
+function renderEventList() {
+  clearTable(el.eventList);
+  const from = eventListFrom();
+  const events = state.events.filter((event) => {
+    if (from !== null && !(Date.parse(event.occurred_at) >= from)) {
+      return false;
+    }
+    if (event.mod_id === null) {
+      return true;
+    }
+    const mod = state.mods.find((m) => m.mod_id === event.mod_id);
+    return mod !== undefined && mod.platform === state.platform;
+  });
+
+  el.eventSection.hidden = events.length === 0;
+
+  for (const event of [...events].reverse()) {
+    const li = document.createElement("li");
+
+    // 線の見本(グラフの縦線と同じ色・破線)。知らない種類は「メモ」と同じ見た目にする
+    const swatch = document.createElement("span");
+    swatch.className = `event-swatch event-swatch-${EVENT_KINDS[event.kind] ? event.kind : "note"}`;
+    li.appendChild(swatch);
+
+    // 日付は日本時間(日ごとの増加の棒と同じ日になる)
+    const date = document.createElement("span");
+    date.className = "event-date";
+    date.textContent = formatDate(`${jstDateKey(event.occurred_at)}T00:00:00Z`);
+    li.appendChild(date);
+
+    const kind = document.createElement("span");
+    kind.className = "event-kind";
+    kind.textContent = eventKind(event.kind).label;
+    li.appendChild(kind);
+
+    // 見出し。詳細のページがあれば新しいタブで開くリンクにする
+    // (rel="noopener noreferrer": 開いた先のページにこのページを操作させず、参照元も送らない)
+    if (event.url) {
+      const link = document.createElement("a");
+      link.href = event.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = event.title;
+      li.appendChild(link);
+    } else {
+      const title = document.createElement("span");
+      title.textContent = event.title;
+      li.appendChild(title);
+    }
+
+    // 特定の mod の出来事なら、どの mod かを添える
+    if (event.mod_id !== null) {
+      const mod = state.mods.find((m) => m.mod_id === event.mod_id);
+      const modName = document.createElement("span");
+      modName.className = "event-mod";
+      modName.textContent = `(${mod.name})`;
+      li.appendChild(modName);
+    }
+
+    el.eventList.appendChild(li);
   }
 }
 
@@ -786,10 +993,11 @@ function renderDownloadsChart() {
             label: (item) => `${formatNumber(item.parsed.y)} ダウンロード`,
           },
         },
+        eventMarker: { modId: state.modId, alignToDay: false },  // ゲーム全体の出来事と、この mod の出来事
       },
       scales: { x: timeAxisOptions(), y: countAxisOptions() },
     },
-    plugins: [versionMarkerPlugin, crosshairPlugin],
+    plugins: [eventMarkerPlugin, versionMarkerPlugin, crosshairPlugin],
   });
 }
 
@@ -1325,6 +1533,7 @@ async function init() {
   updateRangeFrom();
   loadFetchLogs();
   loadCosts();
+  loadEvents();
   if (requestedMod) {
     // URL で指定された mod は、一覧を待たずに同時に取りに行く
     state.modId = requestedMod.mod_id;

@@ -22,6 +22,8 @@
   --series-4: #eda100;         /* 4 番目(黄) */
   --series-other: #b5b3ac;     /* それより古いバージョンをまとめた「その他」(灰) */
   --marker: #898781;           /* バージョン公開日の縦線 */
+  --event-strong: #2e2d2a;     /* ゲームの大型アップデート・パッチの縦線(バージョンの線より濃く) */
+  --event-subtle: #a3a19a;     /* ゲームのお知らせ・メモの縦線(控えめ) */
   --delta-up: #006300;         /* 増加を表す文字色 */
   --status-good: #0ca30c;
   --status-critical: #d03b3b;
@@ -46,6 +48,8 @@
     --series-4: #c98500;
     --series-other: #5c5b57;
     --marker: #898781;
+    --event-strong: #e6e5df;
+    --event-subtle: #6b6a65;
     --delta-up: #0ca30c;
     --selected-bg: #ffffff;
     --selected-text: #0b0b0b;
@@ -253,6 +257,71 @@ body {
 
 #overviewTable tbody tr.is-selected td:first-child {
   font-weight: 600;
+}
+
+/* ---------- 期間内の出来事(日ごとの増加の下) ---------- */
+.event-section {
+  margin-top: 12px;
+}
+
+.event-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.event-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+/* 1 件 = 線の見本・日付・種類・見出し。狭い画面では見出しが次の行に折り返す */
+.event-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.event-date {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.event-kind {
+  min-width: 8.5em;  /* 一番長い「大型アップデート」に合わせ、見出しの開始位置をそろえる */
+  color: var(--text-secondary);
+}
+
+.event-list a {
+  color: var(--series-1);
+}
+
+.event-mod {
+  color: var(--text-muted);
+}
+
+/* 線の見本: グラフの縦線と同じ色・太さ・破線の短い縦線(app.js の EVENT_KINDS と合わせる) */
+.event-swatch {
+  display: inline-block;
+  width: 0;
+  height: 16px;  /* 破線の切れ目が見える長さ */
+  margin: 0 4px;
+  vertical-align: -1px;
+  border-left: 2px solid var(--event-strong);
+}
+
+.event-swatch-game_patch {
+  border-left-style: dashed;
+}
+
+.event-swatch-game_news,
+.event-swatch-note {
+  border-left: 2px dotted var(--event-subtle);
 }
 
 /* 詳細セクションの見出し行: 左に「○○ の詳細」、右に mod のセレクトボックス(狭ければ折り返す) */

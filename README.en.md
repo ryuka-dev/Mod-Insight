@@ -45,6 +45,7 @@ The **Operations** section (運用状況) at the bottom of the page shows runnin
 | How much does it grow each day, and has that changed? | Bar chart and 7-day average line in **Daily increase** (日ごとの増加) | Per mod, "today's value − yesterday's value", summed over all mods (see "Decisions on data handling" below) |
 | Which mods are growing lately? | **Increase in period** (期間内の増加) column of the table | Per mod, "latest value − first value after the period start" |
 | Did an update push downloads up? | Trend chart in the mod detail (vertical lines = version release dates) | Time series line with release dates overlaid |
+| Was a rise or drop caused by the game itself rather than a mod? | Vertical lines on the trend and daily-increase charts (major update = solid, patch = dashed, news = dotted) and the event list under **Daily increase** | The game's Steam announcements (imported daily) and hand-written notes, placed by their date in Japan time |
 | How much of the downloads moved to the new version? | Stacked chart of downloads by version | Time series per version. The latest 4 versions are shown individually, older ones as "other" |
 | Did a release increase downloads, and was the new version picked up quickly? | **Before and after release** (公開の前後) table and share chart in the mod detail | Downloads per day for 7 days before and after a release, and the new version's share of each day's downloads (see "Decisions on data handling" below) |
 | Do the platforms react differently? | The **platform** switch | The same mod aggregated separately for Thunderstore and Nexus Mods |
@@ -174,6 +175,7 @@ flowchart LR
   subgraph Sources[Data sources]
     TS[Thunderstore<br/>v1 API]
     NX[Nexus Mods<br/>GraphQL v2]
+    Steam[Steam News API<br/>game announcements]
   end
 
   subgraph Func[Azure Functions]
@@ -197,6 +199,7 @@ flowchart LR
   Adapters --> TS
   Adapters --> NX
   Job --> DB
+  Job -.fetch announcements.-> Steam
   Job -.rebuild after fetch.-> Blob
   Job -.fetch running costs.-> Cost
   Api --> Blob
@@ -211,8 +214,9 @@ flowchart LR
 2. A per-site adapter (`api/src/platforms/`) calls the site's API and converts the response into a common shape `{ name, author, external_id, download_count, rating_score, raw_json, versions[] }`
 3. `api/src/fetchJob.js` looks only at that shape and saves it to the DB (it does not know any site's field names)
 4. One row per site is written to `fetch_logs` with the result. If one mod fails, the others are still saved
-5. Finally, `api/src/cache.js` rewrites every GET API response to Blob Storage (see "Read flow" below)
-6. Along the way, `api/src/costs.js` fetches this system's own running costs (daily cost per service for the resource group) from Cost Management and stores them in Blob Storage as `costs.json`. Azure is the source of truth for costs, so they are not put in the DB. A failure here does not affect fetching mod data
+5. `api/src/steamNews.js` fetches the latest 50 official announcements for the game itself (patch notes and so on) from Steam and saves them to the `events` table. This makes it possible to check on the chart whether a rise or drop in downloads came from something that happened to the game. The latest 50 are fetched again every day, so a failed day is caught up the next day. A failure here does not affect fetching mod data
+6. Finally, `api/src/cache.js` rewrites every GET API response to Blob Storage (see "Read flow" below)
+7. Along the way, `api/src/costs.js` fetches this system's own running costs (daily cost per service for the resource group) from Cost Management and stores them in Blob Storage as `costs.json`. Azure is the source of truth for costs, so they are not put in the DB. A failure here does not affect fetching mod data
 
 **Read flow**
 
@@ -248,12 +252,14 @@ The table creation scripts are in `sql/`. Run each one once, in numbered order.
 | `snapshots` | One mod's values at one fetch | `captured_at`, `download_count`, `rating_score`, `raw_json` |
 | `version_snapshots` | One version's values at one fetch | `version_id`, `captured_at`, `download_count` |
 | `fetch_logs` | The result of one fetch job run for one site | `run_at`, `platform`, `status`, `records_fetched`, `error_message` |
+| `events` | One external event (a game announcement or a hand-written note) | `occurred_at`, `kind` (`game_major` / `game_patch` / `game_news` / `note`), `title`, `url`, unique on `source` + `external_id` (except hand-written notes) |
 
 | Script | Contents |
 |---|---|
 | `sql/001_create_tables.sql` | The four base tables |
 | `sql/002_create_version_snapshots.sql` | `version_snapshots` and the unique constraint on `mod_versions` |
 | `sql/003_add_platform_to_fetch_logs.sql` | `fetch_logs.platform` |
+| `sql/004_create_events.sql` | `events` (external events). Also explains how to change `kind` by hand for a major update |
 
 ## 6. REST API
 
@@ -269,6 +275,7 @@ Base URL: `https://mod-insight-ryuka-hrhbbdauc0ezbfc7.eastasia-01.azurewebsites.
 | GET | `/mods/{modId}/version-snapshots?from=&to=` | Download count time series per version |
 | GET | `/mods/{modId}/releases` | Downloads per day for 7 days before and after each version release, and the new version's share (up to 14 days after release). Not filtered by period |
 | GET | `/fetch/logs` | Fetch job run history |
+| GET | `/events` | List of external events (game announcements, hand-written notes), oldest first, all of them. Used for markers on the charts |
 | GET | `/costs` | This system's running costs (daily, per service, up to the last finalized day). Served only from the cache written by the fetch job |
 | POST | `/fetch/run` | Run the fetch job once, now (requires the `x-functions-key` header) |
 
@@ -301,12 +308,13 @@ Investigations of problems in production (symptoms, steps, root cause, decision)
 ```
 Mod-Insight/
   api/                         Azure Functions project
-    src/functions/             One file per function (10 HTTP APIs + 1 timer)
+    src/functions/             One file per function (11 HTTP APIs + 1 timer)
     src/platforms/             Per-site adapters (API response → common shape)
     src/fetchJob.js            The fetch job itself (called from both the timer and the manual run)
     src/cache.js               Blob Storage cache of GET API responses (read and rebuild)
     src/dailyIncrease.js       Daily increase calculation (also defines where a "day" starts and ends)
     src/releaseImpact.js       Before/after release calculation
+    src/steamNews.js           Fetches the game's announcements from Steam (API response → event shape)
     src/costs.js               Fetches running costs from Cost Management into costs.json
     src/db.js                  All SQL lives here
     src/httpUtil.js            Parameter parsing and error response shape
