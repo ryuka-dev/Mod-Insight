@@ -1006,7 +1006,7 @@ function formatFirstTwoDays(row) {
 }
 
 // 更新後に出した版(旧版以外)がその日のダウンロードの 90% を超えるまでの日数の表示
-// 0 = 記録に出た日のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
+// 0 = 初めて記録された日のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
 function formatDaysTo90(row) {
   if (row.next_version === null) {
     return "–";
@@ -1028,7 +1028,7 @@ function renderEventImpact() {
 
   const summary = impact.summary;
   el.eventImpactSummary.appendChild(makeSummaryItem("更新後に新しい版を出した mod",
-    `${formatNumber(summary.next_count)} / ${formatNumber(summary.mod_count)}`));
+    `${formatNumber(summary.next_count)} 本(全 ${formatNumber(summary.mod_count)} 本中)`));
   el.eventImpactSummary.appendChild(makeSummaryItem("新しい版までの日数(中央値)",
     summary.median_days_to_next === null ? "–" : `${formatNumber(summary.median_days_to_next)} 日`));
   el.eventImpactSummary.appendChild(makeSummaryItem("その間の旧版のダウンロード(合計、多めの見積もり)",
@@ -1041,7 +1041,7 @@ function renderEventImpact() {
     tr.appendChild(makeCell(row.name));
     tr.appendChild(makeCell(`v${row.version_at_event}`));
     if (row.next_version === null) {
-      tr.appendChild(makeCell("未公開", "not-released"));
+      tr.appendChild(makeCell("新しい版なし", "not-released"));
       tr.appendChild(makeCell("–"));
       tr.appendChild(makeCell("–", "num"));
     } else {
