@@ -44,7 +44,7 @@
 | 最近伸びているのはどの mod か | 一覧表の「期間内の増加」 | mod ごとに「最新の値 − 期間開始後で最初の値」 |
 | アップデートがダウンロードを押し上げたか | mod 詳細の推移グラフ(縦線 = バージョン公開日) | 時系列の折れ線にバージョン公開日を重ねて表示 |
 | 増減の理由が mod ではなくゲーム本体の出来事か | 推移と日ごとの増加のグラフの縦線(大型アップデート = 実線、パッチ = 破線、お知らせ = 点線)と、「日ごとの増加」の下の出来事の一覧 | Steam のゲームのお知らせ(毎日取り込み)と手入力のメモを、日本時間の日付で重ねて表示 |
-| ゲームの更新後、各 mod が新しい版を出すまで何日かかり、その間に更新前の版が何回ダウンロードされたか | 「ゲーム更新への対応」(更新を選ぶと mod ごとの表と合計。期間の選択は効かない) | ゲームの大型アップデート・パッチの日(日本時間)から、更新後に最初に出した版が記録に現れた日までの日数と、その間の旧版の 1 日ごとの増加の合計(両端の日を含む多めの見積もり)。mod が実際に壊れていたかは分からない |
+| ゲームの更新後、各 mod が新しい版を出すまで何日かかり、その間に更新前の版が何回ダウンロードされたか | 「ゲーム更新への対応」(更新を選ぶと mod ごとの表と合計。期間の選択は効かない) | ゲームの大型アップデート・パッチの日(日本時間)から、更新後に最初に出した版が記録に現れた日までの日数と、その間の旧版の 1 日ごとの増加の合計(両端の日を含む多めの見積もり)。mod が実際に壊れていたかはダウンロード数からは分からないので、作者が互換性チェックで確かめた結果(修正が必要 / 不要)を記録した更新では「修正」の列を出し、合計は修正が必要だった mod だけで出す |
 | 新しいバージョンにダウンロードがどれくらい移ったか | バージョン別ダウンロード数の積み上げグラフ | バージョンごとの時系列。最新 4 バージョンを個別、それより古いものは「その他」 |
 | 公開でダウンロードが増えたか、新しい版はすぐ選ばれたか | mod 詳細の「公開の前後」の表と割合のグラフ | 公開前後 7 日の 1 日あたりのダウンロードと、その日のダウンロードに占める新しい版の割合(下の「データの扱い」参照) |
 | 配布サイトによって反応が違うか | 「配布サイト」の切り替え | 同じ mod を Thunderstore / Nexus Mods それぞれで集計 |
@@ -252,6 +252,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | `version_snapshots` | ある取得時点のバージョン 1 つの値 | `version_id`、`captured_at`、`download_count` |
 | `fetch_logs` | 取得ジョブ 1 回 × 配布サイト 1 つの結果 | `run_at`、`platform`、`status`、`records_fetched`、`error_message` |
 | `events` | 外部の出来事 1 つ(ゲームのお知らせ、手入力のメモ) | `occurred_at`、`kind`(`game_major` / `game_patch` / `game_news` / `note`)、`title`、`url`、`source` + `external_id` で一意(手入力は除く) |
+| `event_mod_assessments` | ゲームの更新 1 つ × mod 1 件について、修正が必要だったか | `(event_id, mod_id)` で一意、`needs_fix`(1 = 必要、0 = 確認して不要)、`updated_at`。行が無ければ未確認。何が壊れたかは記録しない |
 
 | スクリプト | 内容 |
 |---|---|
@@ -259,6 +260,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | `sql/002_create_version_snapshots.sql` | `version_snapshots` と `mod_versions` の一意制約 |
 | `sql/003_add_platform_to_fetch_logs.sql` | `fetch_logs.platform` |
 | `sql/004_create_events.sql` | `events`(外部の出来事)。大型アップデートの `kind` の付け替え方もここに書いてある |
+| `sql/005_create_event_mod_assessments.sql` | `event_mod_assessments`(ゲームの更新ごとに、mod の修正が必要だったか)。行は `scripts/import-assessment.js` で書く |
 
 ## 6. REST API
 
@@ -275,7 +277,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | GET | `/mods/{modId}/releases` | バージョン公開の前後 7 日の 1 日あたりのダウンロードと、新しい版の割合(公開から 14 日まで)。期間では絞らない |
 | GET | `/fetch/logs` | 取得ジョブの実行記録 |
 | GET | `/events` | 外部の出来事(ゲームのお知らせ、手入力のメモ)の一覧(古い順、全件)。グラフの印用 |
-| GET | `/event-impacts?platform=` | ゲームの大型アップデート・パッチごとの、mod ごとの対応状況(更新後に最初に出した版、それまでの日数、その間の旧版のダウンロード、新しい版の最初の 2 日、更新前の版以外が 90% を超えるまでの日数)と合計(新しい更新が先)。`platform` は `thunderstore` / `nexusmods`(省略時は両方) |
+| GET | `/event-impacts?platform=` | ゲームの大型アップデート・パッチごとの、mod ごとの対応状況(更新後に最初に出した版、それまでの日数、その間の旧版のダウンロード、新しい版の最初の 2 日、更新前の版以外が 90% を超えるまでの日数)と合計(新しい更新が先)。互換性チェックの記録がある更新では、mod ごとに修正が必要だったか(`needs_fix`)を付け、合計は修正が必要だった mod だけで出す(`summary.basis`)。`platform` は `thunderstore` / `nexusmods`(省略時は両方) |
 | GET | `/costs` | このシステムの運用費用(日別・サービス別、集計が確定した日まで)。取得ジョブが置いたキャッシュだけから返す |
 | POST | `/fetch/run` | 取得ジョブを今すぐ 1 回実行(ヘッダー `x-functions-key` が必要) |
 
@@ -321,7 +323,7 @@ Mod-Insight/
     src/httpUtil.js            パラメータの解釈とエラー応答の形
   web/                         ダッシュボード(index.html / app.js / style.css / config.js)
   sql/                         建表スクリプト(番号順に実行)
-  scripts/                     単体で動かす補助スクリプト(API の確認、データの埋め戻し)
+  scripts/                     単体で動かす補助スクリプト(API の確認、データの埋め戻し、互換性チェックの結果の取り込み)
   docs/                        監視の説明、運用記録、README 用の画像
   api/test/                    ユニットテスト(node:test)
   .github/workflows/           テスト実行、api/ の Azure Functions への配置、web/ の Static Web Apps への配置
@@ -385,6 +387,18 @@ Pull Request と `main` への push では GitHub Actions(`.github/workflows/tes
 node scripts/test-thunderstore-api.js
 node scripts/test-nexusmods-api.js
 ```
+
+### 互換性チェックの結果の取り込み
+
+ゲームの更新ごとに mod の修正が必要だったかを、互換性チェックの結果ファイル(JSON)から `event_mod_assessments` に書きます。
+接続先は `api/local.settings.json` の `AZURE_SQL_CONNECTION_STRING` です。
+
+```
+node scripts/import-assessment.js <結果ファイル.json> --events <Steam のお知らせの番号>[,<番号>...] [--apply]
+```
+
+`--apply` を付けない時は、書く予定の行を表示するだけで何も書きません。付けた時は、すべての行を 1 つのトランザクションで書きます。
+mods に無い mod や events に無い更新が 1 つでもあれば、何も書かずにエラーで終わります。結果ファイルの形は `api/src/assessment.js` の先頭にあります。
 
 ### フロントエンド
 
