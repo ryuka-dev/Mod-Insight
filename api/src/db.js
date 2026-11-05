@@ -15,7 +15,7 @@
 //
 // 提供する関数(書き込み。取得ジョブから使う):
 //   upsertMod(mod)              mods テーブルへ MERGE(あれば更新、なければ挿入)し、mod_id を返す
-//   upsertModVersion(version)   mod_versions テーブルへ MERGE(同じ mod_id + version_number があれば何もしない)し、version_id を返す
+//   upsertModVersion(version)   mod_versions テーブルへ MERGE(同じ mod_id + version_number があれば released_at が空の時だけ埋める)し、version_id を返す
 //   insertVersionSnapshot(vs)   version_snapshots テーブルへ 1 行 INSERT する
 //   insertSnapshot(snapshot)    snapshots テーブルへ 1 行 INSERT する
 //   insertFetchLog(log)         fetch_logs テーブルへ 1 行 INSERT する(プラットフォームごとに 1 行)
@@ -213,12 +213,14 @@ async function insertFetchLog(log) {
     `);
 }
 
-// mod_versions テーブルへ挿入する(既にあれば何もしない)
-// 入力: { mod_id, version_number, release_date(YYYY-MM-DD 文字列 or null) }
+// mod_versions テーブルへ挿入する(既にあれば released_at が空の時だけ埋める)
+// 入力: { mod_id, version_number, release_date(YYYY-MM-DD 文字列 or null), released_at(ISO 文字列 or null) }
 // 出力: version_id(数値)
 // バージョンは一度公開されたら変わらないので、(mod_id, version_number) が一致する行が
-// 既にあれば更新もせずそのまま残す。取得ジョブは毎日全バージョンをこの関数に通すため、
+// 既にあれば基本はそのまま残す。取得ジョブは毎日全バージョンをこの関数に通すため、
 // 新しく公開されたバージョンだけが自然に追加されていく。
+// released_at は後から足した列(sql/006)なので、空の行だけここで埋める。
+// 全バージョンが毎日通るので、埋め戻しのスクリプトを書かなくても次の取得で全部そろう。
 // MERGE のあとに SELECT で version_id を取り直しているのは、
 // 「既にあった」場合には MERGE が何も返さないため。
 async function upsertModVersion(version) {
@@ -229,13 +231,16 @@ async function upsertModVersion(version) {
     .input("mod_id", sql.Int, version.mod_id)
     .input("version_number", sql.NVarChar(50), version.version_number)
     .input("release_date", sql.Date, version.release_date)
+    .input("released_at", sql.DateTime2, version.released_at ? new Date(version.released_at) : null)
     .query(`
       MERGE mod_versions AS target
       USING (SELECT @mod_id AS mod_id, @version_number AS version_number) AS source
         ON target.mod_id = source.mod_id AND target.version_number = source.version_number
+      WHEN MATCHED AND target.released_at IS NULL AND @released_at IS NOT NULL THEN
+        UPDATE SET released_at = @released_at
       WHEN NOT MATCHED THEN
-        INSERT (mod_id, version_number, release_date)
-        VALUES (@mod_id, @version_number, @release_date);
+        INSERT (mod_id, version_number, release_date, released_at)
+        VALUES (@mod_id, @version_number, @release_date, @released_at);
 
       SELECT version_id
       FROM mod_versions
@@ -368,7 +373,7 @@ async function getModSummary(modId) {
       ORDER BY captured_at DESC;
     `);
 
-  // 最新バージョン(release_date が一番新しい 1 行)とバージョン数
+  // 最新バージョン(release_date が一番新しい 1 行。同じ日なら released_at の新しい方)とバージョン数
   const versionResult = await pool
     .request()
     .input("mod_id", sql.Int, modId)
@@ -376,7 +381,7 @@ async function getModSummary(modId) {
       SELECT TOP 1 version_number, release_date
       FROM mod_versions
       WHERE mod_id = @mod_id
-      ORDER BY release_date DESC, version_id DESC;
+      ORDER BY release_date DESC, released_at DESC, version_id DESC;
 
       SELECT COUNT(*) AS version_count
       FROM mod_versions
@@ -428,7 +433,7 @@ async function listModVersions(modId) {
       SELECT version_id, version_number, release_date, changelog
       FROM mod_versions
       WHERE mod_id = @mod_id
-      ORDER BY release_date DESC, version_id DESC;
+      ORDER BY release_date DESC, released_at DESC, version_id DESC;
     `);
 
   return result.recordset;
@@ -453,7 +458,7 @@ async function listVersionSnapshots(modId, from, to) {
       WHERE v.mod_id = @mod_id
         AND (@from IS NULL OR vs.captured_at >= @from)
         AND (@to IS NULL OR vs.captured_at <= @to)
-      ORDER BY vs.captured_at ASC, v.release_date ASC, v.version_id ASC;
+      ORDER BY vs.captured_at ASC, v.release_date ASC, v.released_at ASC, v.version_id ASC;
     `);
 
   return result.recordset;
@@ -500,7 +505,7 @@ async function getOverview(from, platform) {
       ),
       latest_version AS (
         SELECT mod_id, version_number, release_date,
-               ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY release_date DESC, version_id DESC) AS rn
+               ROW_NUMBER() OVER (PARTITION BY mod_id ORDER BY release_date DESC, released_at DESC, version_id DESC) AS rn
         FROM mod_versions
       )
       SELECT m.mod_id, m.name, m.platform,
