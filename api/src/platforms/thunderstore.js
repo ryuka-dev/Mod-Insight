@@ -17,7 +17,7 @@
 //     download_count: 総ダウンロード数
 //     rating_score:   評価(Thunderstore では rating_score)
 //     raw_json:       API の応答そのもの(文字列)。あとで項目を足したくなったときのために残す
-//     versions: [{ version_number, release_date(YYYY-MM-DD or null), download_count }, ...]
+//     versions: [{ version_number, release_date(YYYY-MM-DD or null), released_at(ISO 文字列 or null), download_count }, ...]
 //   }
 //
 // 使う API:
@@ -68,8 +68,18 @@ function sumDownloads(pkg) {
   return total;
 }
 
+// 日時の文字列を ISO 文字列にする(外から来る値なので、日時として読めなければ null)
+// 入力: value(文字列 or それ以外)
+// 出力: ISO 文字列 または null
+function toIsoOrNull(value) {
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
 // Thunderstore の 1 パッケージを共通の形に直す
-// date_created は "2025-03-01T12:34:56.789Z" のような ISO 文字列なので、先頭 10 文字 = 日付部分だけ使う
+// date_created は "2025-03-01T12:34:56.789Z" のような ISO 文字列。
+// release_date には先頭 10 文字 = 日付部分だけを入れ、released_at には時刻まで入れる
+// (同じ日に公開した版の新旧を決めるため)。読めない値は null にする
 function toCommonShape(pkg) {
   return {
     name: pkg.name,
@@ -82,6 +92,7 @@ function toCommonShape(pkg) {
     versions: pkg.versions.map((version) => ({
       version_number: version.version_number,
       release_date: version.date_created ? version.date_created.slice(0, 10) : null,
+      released_at: toIsoOrNull(version.date_created),
       download_count: version.downloads,
     })),
   };

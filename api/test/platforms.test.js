@@ -76,8 +76,8 @@ describe("thunderstore.fetchTrackedMods", () => {
     assert.equal(mod.download_count, 1500);   // 300 + 1200(API に総数の項目が無いので合計する)
     assert.equal(mod.rating_score, 2);
     assert.deepEqual(mod.versions, [
-      { version_number: "1.4.1", release_date: "2026-09-12", download_count: 300 },
-      { version_number: "1.4.0", release_date: "2026-09-01", download_count: 1200 },
+      { version_number: "1.4.1", release_date: "2026-09-12", released_at: "2026-09-12T10:00:00.000Z", download_count: 300 },
+      { version_number: "1.4.0", release_date: "2026-09-01", released_at: "2026-09-01T10:00:00.000Z", download_count: 1200 },
     ]);
     assert.deepEqual(JSON.parse(mod.raw_json), packages[0]);
   });
@@ -152,8 +152,8 @@ describe("nexusmods.fetchTrackedMods", () => {
     assert.equal(mod.download_count, 2000);   // Nexus が持つ総数をそのまま使う(ファイルの合計ではない)
     assert.equal(mod.rating_score, 30);
     assert.deepEqual(mod.versions, [
-      { version_number: "1.3.0", release_date: "2025-08-31", download_count: 800 },
-      { version_number: "1.4.1", release_date: "2025-09-12", download_count: 1200 },
+      { version_number: "1.3.0", release_date: "2025-08-31", released_at: "2025-08-31T00:00:00.000Z", download_count: 800 },
+      { version_number: "1.4.1", release_date: "2025-09-12", released_at: "2025-09-12T00:00:00.000Z", download_count: 1200 },
     ]);
     assert.deepEqual(Object.keys(JSON.parse(mod.raw_json)), ["mod", "files"]);
   });

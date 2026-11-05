@@ -249,7 +249,7 @@ The table creation scripts are in `sql/`. Run each one once, in numbered order.
 | Table | One row is | Main columns |
 |---|---|---|
 | `mods` | One tracked mod | Unique on `platform` + `external_id` (mods with the same name on different sites stay distinct), `is_deprecated` |
-| `mod_versions` | One version of a mod | Unique on `(mod_id, version_number)`, `release_date` |
+| `mod_versions` | One version of a mod | Unique on `(mod_id, version_number)`, `release_date`, `released_at` (orders versions published on the same day) |
 | `snapshots` | One mod's values at one fetch | `captured_at`, `download_count`, `rating_score`, `raw_json` |
 | `version_snapshots` | One version's values at one fetch | `version_id`, `captured_at`, `download_count` |
 | `fetch_logs` | The result of one fetch job run for one site | `run_at`, `platform`, `status`, `records_fetched`, `error_message` |
@@ -263,6 +263,7 @@ The table creation scripts are in `sql/`. Run each one once, in numbered order.
 | `sql/003_add_platform_to_fetch_logs.sql` | `fetch_logs.platform` |
 | `sql/004_create_events.sql` | `events` (external events). Also explains how to change `kind` by hand for a major update |
 | `sql/005_create_event_mod_assessments.sql` | `event_mod_assessments` (whether each mod needed a fix for each game update). Rows are written with `scripts/import-assessment.js` |
+| `sql/006_add_released_at_to_mod_versions.sql` | `mod_versions.released_at`. Existing rows are filled by the next fetch |
 
 ## 6. REST API
 

@@ -124,23 +124,27 @@ async function fetchModFiles(mod) {
 
 // ファイル一覧をバージョン番号ごとにまとめる
 // 入力: ファイルオブジェクトの配列
-// 出力: [{ version_number, release_date, download_count }, ...]
-//       同じバージョン番号のファイルはダウンロード数を合計し、公開日は一番古いものにする
+// 出力: [{ version_number, release_date, released_at, download_count }, ...]
+//       同じバージョン番号のファイルはダウンロード数を合計し、公開日(release_date、released_at)は一番古いものにする
 function groupFilesByVersion(files) {
-  const byVersion = new Map();  // version_number → { version_number, release_date, download_count }
+  const byVersion = new Map();  // version_number → { version_number, release_date, released_at, download_count }
   for (const file of files) {
-    // date は UNIX 秒なのでミリ秒に直してから日付部分(YYYY-MM-DD)を取る
-    const releaseDate = file.date ? new Date(file.date * 1000).toISOString().slice(0, 10) : null;
+    // date は UNIX 秒なのでミリ秒に直す。released_at は時刻まで、release_date は日付部分(YYYY-MM-DD)だけ
+    const releasedAt = file.date ? new Date(file.date * 1000).toISOString() : null;
+    const releaseDate = releasedAt ? releasedAt.slice(0, 10) : null;
     const existing = byVersion.get(file.version);
     if (existing) {
       existing.download_count += file.totalDownloads;
-      if (releaseDate && (existing.release_date === null || releaseDate < existing.release_date)) {
+      // ISO 文字列はそのまま比べると時刻の順になる
+      if (releasedAt && (existing.released_at === null || releasedAt < existing.released_at)) {
+        existing.released_at = releasedAt;
         existing.release_date = releaseDate;
       }
     } else {
       byVersion.set(file.version, {
         version_number: file.version,
         release_date: releaseDate,
+        released_at: releasedAt,
         download_count: file.totalDownloads,
       });
     }

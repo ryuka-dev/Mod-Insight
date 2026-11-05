@@ -18,7 +18,7 @@
 //   {
 //     name, author, external_id, is_deprecated,
 //     download_count, rating_score, raw_json,
-//     versions: [{ version_number, release_date, download_count }, ...]
+//     versions: [{ version_number, release_date, released_at, download_count }, ...]
 //   }
 //
 // 処理の流れ(プラットフォームごとに繰り返す):
@@ -70,6 +70,7 @@ async function saveMod(platform, mod, capturedAt) {
       mod_id: modId,
       version_number: version.version_number,
       release_date: version.release_date,
+      released_at: version.released_at,
     });
     await db.insertVersionSnapshot({
       version_id: versionId,

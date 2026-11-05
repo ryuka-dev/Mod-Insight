@@ -247,7 +247,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | テーブル | 1 行が表すもの | 主な列 |
 |---|---|---|
 | `mods` | 追跡している mod 1 件 | `platform` + `external_id` で一意(同じ名前の mod が別サイトにあっても区別できる)、`is_deprecated` |
-| `mod_versions` | mod のバージョン 1 つ | `(mod_id, version_number)` で一意、`release_date` |
+| `mod_versions` | mod のバージョン 1 つ | `(mod_id, version_number)` で一意、`release_date`、`released_at`(同じ日に公開した版の新旧を決める) |
 | `snapshots` | ある取得時点の mod 1 件の値 | `captured_at`、`download_count`、`rating_score`、`raw_json` |
 | `version_snapshots` | ある取得時点のバージョン 1 つの値 | `version_id`、`captured_at`、`download_count` |
 | `fetch_logs` | 取得ジョブ 1 回 × 配布サイト 1 つの結果 | `run_at`、`platform`、`status`、`records_fetched`、`error_message` |
@@ -261,6 +261,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | `sql/003_add_platform_to_fetch_logs.sql` | `fetch_logs.platform` |
 | `sql/004_create_events.sql` | `events`(外部の出来事)。大型アップデートの `kind` の付け替え方もここに書いてある |
 | `sql/005_create_event_mod_assessments.sql` | `event_mod_assessments`(ゲームの更新ごとに、mod の修正が必要だったか)。行は `scripts/import-assessment.js` で書く |
+| `sql/006_add_released_at_to_mod_versions.sql` | `mod_versions.released_at`。既存の行は次の取得で埋まる |
 
 ## 6. REST API
 
