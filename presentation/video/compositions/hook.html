@@ -167,7 +167,7 @@
       );
       label.textContent = "SULFUR 1.0";
 
-      gsap.set(after, { scaleY: 0 });
+      gsap.set(after, { scaleY: 0, transformOrigin: "50% 100%" });
       tl.fromTo("#hook-date", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 0.3);
 
       // 1.0 の線が上から落ちる
@@ -180,7 +180,7 @@
       tl.fromTo(label, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.release + 0.45);
 
       // 1.0 のあとの増加とパッチの線
-      tl.to(after, { scaleY: 1, duration: 0.8, ease: "expo.out", stagger: 0.05 }, CUES.surge);
+      tl.to(after, { scaleY: 1, transformOrigin: "50% 100%", duration: 0.8, ease: "expo.out", stagger: 0.05 }, CUES.surge);
       chart.events
         .filter((e) => e !== release)
         .forEach((e, i) => tl.fromTo(e.g, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.surge + 0.4 + i * 0.12));

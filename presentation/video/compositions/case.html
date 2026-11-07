@@ -294,7 +294,7 @@
       MI.blurIn(tl, "#case-gantt", CUES.gantt);
       rows.forEach((r, i) => {
         const at = CUES.gantt + 0.8 + i * 0.5;
-        tl.fromTo(r.bar, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "power2.out" }, at);
+        tl.fromTo(r.bar, { scaleX: 0, transformOrigin: "0% 50%" }, { scaleX: 1, transformOrigin: "0% 50%", duration: 0.7, ease: "power2.out" }, at);
         tl.fromTo([r.dot, r.lab, r.ver], { opacity: 0 }, { opacity: 1, duration: 0.2 }, at + 0.6);
       });
 
