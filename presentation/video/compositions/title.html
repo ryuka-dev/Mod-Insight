@@ -35,7 +35,7 @@
   <div id="root" data-composition-id="title" data-width="1920" data-height="1080">
     <div id="title-clip" class="clip" data-start="0" data-duration="10" data-hold>
       <div id="title-box">
-        <div id="title-who">HAL 東京 情報処理学科</div>
+        <div id="title-who">HAL 東京 情報処理学科 <span id="title-person"></span></div>
         <div id="title-name"><span>Mod </span><span class="title-accent">Insight</span></div>
         <div id="title-desc">配布サイトの公開データを毎日集めて分析するシステム</div>
       </div>
@@ -45,6 +45,7 @@
     (function () {
       const CUES = { who: 0.2, name: 2.4 };
       const tl = gsap.timeline({ paused: true });
+      document.getElementById("title-person").textContent = window.MI.presenter.name;
       window.MI.blurIn(tl, "#title-who", CUES.who);
 
       // 作品名は 1 文字ずつ(0.06 秒おき)

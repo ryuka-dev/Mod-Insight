@@ -6,3 +6,5 @@ snapshots/
 node_modules/
 # 録音(本人の声はリポジトリに含めない)
 assets/voice/
+# 発表者の名前とクラスの情報(リポジトリに入れない。見本は presenter.example.js)
+assets/presenter.js

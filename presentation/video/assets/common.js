@@ -115,5 +115,8 @@
     tl.fromTo(box, { v: 0 }, { v: to, duration, ease: "power2.out", onUpdate: show }, at);
   }
 
-  window.MI = { el, fmt, md, drawDaily, blurIn, blurOut, countUp, data: window.MI_DATA };
+  // 発表者の名前は assets/presenter.js(Git の対象外)から読む。無ければ空にする
+  const presenter = window.MI_PRESENTER || { name: "" };
+
+  window.MI = { el, fmt, md, drawDaily, blurIn, blurOut, countUp, data: window.MI_DATA, presenter };
 })();
