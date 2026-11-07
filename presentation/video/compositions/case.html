@@ -171,7 +171,7 @@
   </style>
   <div id="root" data-composition-id="case" data-width="1920" data-height="1080">
     <!-- 場面 1 と同じ全体のグラフ → 1.0 の前後に寄ったグラフ -->
-    <div id="case-chart-clip" class="clip" data-start="0" data-duration="25" data-layout-allow-overlap>
+    <div id="case-chart-clip" class="clip" data-start="0" data-duration="21.08" data-layout-allow-overlap>
       <div id="case-full" class="case-card card">
         <h2>日ごとのダウンロード数</h2>
         <p>わたしの mod 50 件(2 つの配布サイト)の合計</p>
@@ -185,7 +185,7 @@
     </div>
 
     <!-- 6 個の mod が新しい版を出すまで -->
-    <div id="case-gantt-clip" class="clip" data-start="24.8" data-duration="15.4" data-hold>
+    <div id="case-gantt-clip" class="clip" data-start="20.88" data-duration="14.32" data-hold>
       <div id="case-gantt" class="card">
         <h2>修正が必要だった 6 個: 1.0 から新しい版を出すまで</h2>
         <svg id="case-gantt-svg"></svg>
@@ -197,7 +197,7 @@
     </div>
 
     <!-- 場面 1 の「? 回」の答え -->
-    <div id="case-answer-clip" class="clip" data-start="40" data-duration="22.66" data-hold>
+    <div id="case-answer-clip" class="clip" data-start="35" data-duration="18.39" data-hold>
       <div id="case-question">
         <div id="case-question-label">直すまでに、修正前の版がダウンロードされた数</div>
         <div id="case-question-value">
@@ -212,7 +212,7 @@
   <script>
     (function () {
       // labels は 1.0 / 1.0.1 / 1.0.2 の名前を出す時刻(それぞれ声で読まれるとき)
-      const CUES = { swap: 2.4, lines: 3.6, labels: [6.9, 9.2, 12.3], wait: 21.2, gantt: 25.0, median: 30.9, answer: 40.0, count: 43.3, breakdown: 46.6, decide: 55.9 };
+      const CUES = { swap: 2.1, lines: 3.02, labels: [5.78, 7.84, 10.86], wait: 17.9, gantt: 21.08, median: 26.22, answer: 35, count: 38.54, breakdown: 41.2, decide: 47.48 };
       const MI = window.MI;
       const D = MI.data;
       const C = D.case10;
@@ -300,7 +300,7 @@
 
       document.getElementById("case-med-a").textContent = C.medianDaysFromMajor;
       document.getElementById("case-med-b").textContent = C.medianDaysFrom102;
-      tl.fromTo(".case-median-item", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 4.8 }, CUES.median);
+      tl.fromTo(".case-median-item", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 5.24 }, CUES.median);
 
       // 答え: 場面 1 の「?」と同じ位置・大きさ
       MI.blurOut(tl, ["#case-gantt", "#case-median"], CUES.answer - 0.2);

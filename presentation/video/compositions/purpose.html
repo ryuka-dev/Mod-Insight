@@ -105,7 +105,7 @@
     }
   </style>
   <div id="root" data-composition-id="purpose" data-width="1920" data-height="1080">
-    <div id="purpose-a" class="clip" data-start="0" data-duration="22.7" data-hold>
+    <div id="purpose-a" class="clip" data-start="0" data-duration="21.83" data-hold>
       <div id="purpose-sites">
         <div class="purpose-site">
           <div class="purpose-site-name">Thunderstore</div>
@@ -130,7 +130,7 @@
       </div>
     </div>
 
-    <div id="purpose-b" class="clip" data-start="22.5" data-duration="8.69" data-hold>
+    <div id="purpose-b" class="clip" data-start="21.63" data-duration="7.95" data-hold>
       <div id="purpose-chart" class="card">
         <h2>毎日 0 時に記録した合計の推移</h2>
         <svg id="purpose-svg"></svg>
@@ -139,7 +139,7 @@
   </div>
   <script>
     (function () {
-      const CUES = { sites: 0.6, total: 10.1, only: 13.5, questions: 17.1, record: 22.7 };
+      const CUES = { sites: 0.8, total: 9.54, only: 12.99, questions: 16.79, record: 21.83 };
       const MI = window.MI;
       const D = MI.data;
       const tl = gsap.timeline({ paused: true });
@@ -149,7 +149,7 @@
       document.getElementById("purpose-total-source").textContent =
         `2 つのサイトの合計(${jst.slice(0, 10).replace(/-/g, "/")} ${jst.slice(11, 16)} の記録)`;
 
-      tl.fromTo(".purpose-site", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 1.2 }, CUES.sites);
+      tl.fromTo(".purpose-site", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 1.02 }, CUES.sites);
       MI.blurIn(tl, "#purpose-total-label", CUES.total);
       MI.countUp(tl, document.getElementById("purpose-total-value"), D.totals.all, CUES.total + 0.2);
       MI.blurIn(tl, "#purpose-total-source", CUES.total + 1.4);
@@ -160,7 +160,7 @@
       MI.blurIn(tl, "#purpose-total-label-only", CUES.only);
 
       const qs = document.querySelectorAll(".purpose-q");
-      tl.fromTo(qs, { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 1.8 }, CUES.questions);
+      tl.fromTo(qs, { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 1.74 }, CUES.questions);
 
       MI.blurOut(tl, ["#purpose-sites", "#purpose-questions", "#purpose-total"], CUES.record - 0.2);
 
