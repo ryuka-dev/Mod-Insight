@@ -1,0 +1,121 @@
+<!--
+  場面 8: 今後(原稿 8 節)
+  時間軸の上に、決まっている日付(作品展、エントリー、学生向けの利用枠の終わり)と、今後の予定 2 つを置く。
+-->
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    #next-title {
+      position: absolute;
+      left: 96px;
+      top: 64px;
+      font-size: 44px;
+      font-weight: 700;
+    }
+    #next-svg {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+    }
+    .next-axis {
+      stroke: var(--ink);
+      stroke-width: 4;
+    }
+    .next-date {
+      font-family: var(--font-num);
+      font-size: 32px;
+      font-weight: 700;
+      fill: var(--ink);
+    }
+    .next-what {
+      font-size: 30px;
+      fill: var(--ink-2);
+    }
+    .next-task {
+      position: absolute;
+      padding: 24px 28px;
+      width: 640px;
+    }
+    .next-task b {
+      display: block;
+      font-size: 38px;
+      line-height: 1.35;
+    }
+    .next-task span {
+      display: block;
+      font-size: 28px;
+      color: var(--ink-2);
+      margin-top: 8px;
+    }
+    #next-t1 {
+      left: 160px;
+      top: 200px;
+    }
+    #next-t2 {
+      left: 1000px;
+      width: 760px;
+      top: 200px;
+      border: 3px solid var(--blue);
+    }
+  </style>
+  <div id="root" data-composition-id="next" data-width="1920" data-height="1080">
+    <div id="next-clip" class="clip" data-start="0" data-duration="22" data-hold>
+      <div id="next-title">今後</div>
+      <svg id="next-svg" viewBox="0 0 1920 1080">
+        <line id="next-line" class="next-axis" x1="200" y1="640" x2="1760" y2="640" />
+        <g id="next-p0">
+          <circle cx="200" cy="640" r="14" fill="#2a78d6" />
+          <text class="next-date" x="200" y="710" text-anchor="middle">2026/11</text>
+          <text class="next-what" x="200" y="752" text-anchor="middle">今</text>
+        </g>
+        <g id="next-p1">
+          <circle cx="340" cy="640" r="12" fill="#0b0b0b" />
+          <text class="next-date" x="340" y="810" text-anchor="middle">2026/12</text>
+          <text class="next-what" x="340" y="852" text-anchor="middle">作品展</text>
+        </g>
+        <g id="next-p2">
+          <circle cx="480" cy="640" r="12" fill="#0b0b0b" />
+          <text class="next-date" x="520" y="710" text-anchor="start">2027/01</text>
+          <text class="next-what" x="520" y="752" text-anchor="start">就職作品のエントリー</text>
+        </g>
+        <g id="next-p3">
+          <circle cx="1600" cy="640" r="14" fill="#eb6834" />
+          <text class="next-date" x="1600" y="710" text-anchor="middle">2027/09</text>
+          <text class="next-what" x="1600" y="752" text-anchor="middle">学生向けの Azure 利用枠が終わる</text>
+        </g>
+        <path id="next-arrow" d="M1360,440 L1590,618" fill="none" stroke="#2a78d6" stroke-width="4" stroke-dasharray="10 8" />
+      </svg>
+      <div id="next-t1" class="next-task card">
+        <b>データベースへの接続から<br />パスワードをなくす</b>
+        <span>マネージド ID に切り替える</span>
+      </div>
+      <div id="next-t2" class="next-task card">
+        <b>データを静的なファイルに書き出して、<br />費用をかけずに公開を続ける</b>
+        <span>利用枠が終わる前に</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const CUES = { line: 0.2, now: 0.6, t1: 1.8, deadline: 8.0, t2: 12.0 };
+      const MI = window.MI;
+      const tl = gsap.timeline({ paused: true });
+
+      MI.blurIn(tl, "#next-title", 0.1);
+      tl.fromTo("#next-line", { attr: { x2: 200 } }, { attr: { x2: 1760 }, duration: 0.9, ease: "power2.inOut" }, CUES.line);
+      tl.fromTo(["#next-p0", "#next-p1", "#next-p2"], { opacity: 0 }, { opacity: 1, duration: 0.2, stagger: 0.3 }, CUES.now);
+      gsap.set(["#next-t1", "#next-t2", "#next-p3", "#next-arrow"], { opacity: 0 });
+      tl.fromTo("#next-t1", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, CUES.t1);
+      MI.blurIn(tl, "#next-p3", CUES.deadline);
+      tl.fromTo("#next-t2", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, CUES.t2);
+      tl.to("#next-arrow", { opacity: 1, duration: 0.3 }, CUES.t2 + 0.5);
+
+      window.__timelines["next"] = tl;
+    })();
+  </script>
+</template>
