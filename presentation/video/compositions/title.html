@@ -1,0 +1,75 @@
+<!--
+  場面 2: 作品名と自己紹介(原稿 2 節)
+-->
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    #title-box {
+      position: absolute;
+      left: 160px;
+      top: 330px;
+    }
+    #title-who {
+      font-size: 40px;
+      color: var(--ink-2);
+    }
+    #title-name {
+      font-family: var(--font-num);
+      font-size: 200px;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-top: 24px;
+    }
+    #title-name .title-accent {
+      color: var(--blue);
+    }
+    #title-desc {
+      font-size: 44px;
+      margin-top: 28px;
+    }
+  </style>
+  <div id="root" data-composition-id="title" data-width="1920" data-height="1080">
+    <div id="title-clip" class="clip" data-start="0" data-duration="10" data-hold>
+      <div id="title-box">
+        <div id="title-who">HAL 東京 情報処理学科</div>
+        <div id="title-name"><span>Mod </span><span class="title-accent">Insight</span></div>
+        <div id="title-desc">配布サイトの公開データを毎日集めて分析するシステム</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const CUES = { who: 0.2, name: 2.4 };
+      const tl = gsap.timeline({ paused: true });
+      window.MI.blurIn(tl, "#title-who", CUES.who);
+
+      // 作品名は 1 文字ずつ(0.06 秒おき)
+      const name = document.getElementById("title-name");
+      const letters = [];
+      name.querySelectorAll("span").forEach((part) => {
+        const text = part.textContent;
+        part.textContent = "";
+        for (const ch of text) {
+          const s = document.createElement("span");
+          s.textContent = ch;
+          s.style.display = "inline-block";
+          if (ch === " ") s.style.width = "0.25em";
+          part.appendChild(s);
+          letters.push(s);
+        }
+      });
+      tl.fromTo(
+        letters,
+        { opacity: 0.15, filter: "blur(6px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.25, stagger: 0.06, ease: "power2.out" },
+        CUES.name,
+      );
+      window.MI.blurIn(tl, "#title-desc", CUES.name + 1.0);
+      window.__timelines["title"] = tl;
+    })();
+  </script>
+</template>

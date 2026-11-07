@@ -1,0 +1,159 @@
+<!--
+  場面 4: 誰に見てほしいか(原稿 4 節)
+  作ったものを流れの順に並べ、最後に対象の語を入れ替えて、mod 以外にも使えることを見せる。
+-->
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    #aud-head {
+      position: absolute;
+      left: 160px;
+      top: 130px;
+    }
+    #aud-head-small {
+      font-size: 40px;
+      color: var(--ink-2);
+    }
+    #aud-head-big {
+      font-size: 110px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    #aud-head-big em {
+      font-style: normal;
+      color: var(--blue);
+    }
+    #aud-chain {
+      position: absolute;
+      left: 160px;
+      top: 430px;
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    .aud-step-title {
+      font-size: 44px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .aud-step-sub {
+      font-family: var(--font-num);
+      font-size: 28px;
+      color: var(--ink-2);
+      margin-top: 8px;
+      line-height: 1.35;
+    }
+    .aud-arrow {
+      font-family: var(--font-num);
+      font-size: 44px;
+      color: var(--ink-3);
+      padding: 0 4px;
+    }
+    #aud-since {
+      position: absolute;
+      left: 160px;
+      top: 640px;
+      font-size: 40px;
+    }
+    #aud-reuse {
+      position: absolute;
+      left: 160px;
+      top: 800px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 52px;
+      font-weight: 700;
+    }
+    #aud-slot {
+      position: relative;
+      width: 520px;
+      height: 80px;
+      overflow: hidden;
+      border-bottom: 5px solid var(--blue);
+    }
+    .aud-word {
+      position: absolute;
+      left: 0;
+      top: 4px;
+      color: var(--blue);
+      white-space: nowrap;
+    }
+  </style>
+  <div id="root" data-composition-id="audience" data-width="1920" data-height="1080">
+    <div id="aud-clip" class="clip" data-start="0" data-duration="22" data-hold data-layout-allow-overflow>
+      <div id="aud-head">
+        <div id="aud-head-small">見ていただきたいのは</div>
+        <div id="aud-head-big"><em>IT 企業</em>の方</div>
+      </div>
+      <div id="aud-chain">
+        <div class="aud-step">
+          <div class="aud-step-title">データの取得</div>
+          <div class="aud-step-sub">配布サイト 2 つ<br />Steam のお知らせ</div>
+        </div>
+        <div class="aud-arrow">→</div>
+        <div class="aud-step">
+          <div class="aud-step-title">データベース</div>
+          <div class="aud-step-sub">Azure SQL<br />テーブル 7 つ</div>
+        </div>
+        <div class="aud-arrow">→</div>
+        <div class="aud-step">
+          <div class="aud-step-title">クラウドへの配置</div>
+          <div class="aud-step-sub">Azure Functions<br />GitHub Actions</div>
+        </div>
+        <div class="aud-arrow">→</div>
+        <div class="aud-step">
+          <div class="aud-step-title">監視</div>
+          <div class="aud-step-sub">Application<br />Insights</div>
+        </div>
+        <div class="aud-arrow">→</div>
+        <div class="aud-step">
+          <div class="aud-step-title">費用の確認</div>
+          <div class="aud-step-sub">Cost<br />Management</div>
+        </div>
+      </div>
+      <div id="aud-since">ひとりで開発・運用 / 2026 年 9 月 14 日から毎日記録</div>
+      <div id="aud-reuse">
+        <span>同じ作りで扱える対象:</span>
+        <div id="aud-slot">
+          <span class="aud-word" id="aud-w1">mod</span>
+          <span class="aud-word" id="aud-w2">EC サイトの商品</span>
+          <span class="aud-word" id="aud-w3">アプリ</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const CUES = { head: 0.2, chain: 3.6, since: 9.6, reuse: 14.2, roll1: 16.4, roll2: 18.0 };
+      const MI = window.MI;
+      const tl = gsap.timeline({ paused: true });
+
+      MI.blurIn(tl, "#aud-head-small", CUES.head);
+      MI.blurIn(tl, "#aud-head-big", CUES.head + 0.5);
+
+      // 流れの順に 1 つずつ(矢印は手前の段と一緒に出る)
+      const parts = [...document.querySelectorAll("#aud-chain > *")];
+      parts.forEach((p, i) => {
+        tl.fromTo(p, { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, CUES.chain + i * 0.5);
+      });
+      MI.blurIn(tl, "#aud-since", CUES.since);
+      MI.blurIn(tl, "#aud-reuse", CUES.reuse);
+
+      // 対象の語が入れ替わる(下から上へ 0.3 秒)
+      gsap.set(["#aud-w2", "#aud-w3"], { yPercent: 110 });
+      [
+        ["#aud-w1", "#aud-w2", CUES.roll1],
+        ["#aud-w2", "#aud-w3", CUES.roll2],
+      ].forEach(([out, inn, at]) => {
+        tl.to(out, { yPercent: -110, duration: 0.3, ease: "power3.in" }, at);
+        tl.fromTo(inn, { yPercent: 110 }, { yPercent: 0, duration: 0.35, ease: "expo.out" }, at + 0.15);
+      });
+
+      window.__timelines["audience"] = tl;
+    })();
+  </script>
+</template>
