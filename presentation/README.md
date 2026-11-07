@@ -30,7 +30,13 @@ npx hyperframes@0.9.19 render -o renders/draft.mp4 # 動画を出力する
 ## 録音について
 
 ナレーションは本人の録音を使います。録音ファイルはリポジトリに含めません(`video/assets/voice/` は Git の対象外)。
-編集した録音は `video/assets/voice/narration-edited.wav` に置き、`video/index.html` の `<audio>` から読みます。
+編集した録音は `video/assets/voice/narration-v2.wav` に置き、`video/index.html` の `<audio>` から読みます。
 各場面の長さ(`video/index.html` の `data-duration`)と、場面の中で要素が出る時刻(各場面の先頭の `CUES`)は、この録音の声に合わせてあります。
 
 録音ファイルが無いと `hyperframes lint` が `audio_src_not_found` を出し、出力した動画は声なしになります(場面の時刻は録音に合わせたまま)。
+
+出力した動画の音声は、最後に録音ファイルから入れ直します。HyperFrames の出力は単声の録音を左右に分けるときに 3 dB 下げるため、左右に同じ大きさで入れ、256 kbps で圧縮します。
+
+```
+ffmpeg -i renders/final.mp4 -i assets/voice/narration-v2.wav -map 0:v -map 1:a -c:v copy   -c:a aac -b:a 256k -ar 48000 -af "pan=stereo|c0=c0|c1=c0,apad" -shortest renders/final-hq.mp4
+```
