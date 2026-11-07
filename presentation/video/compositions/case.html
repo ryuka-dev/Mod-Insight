@@ -171,7 +171,7 @@
   </style>
   <div id="root" data-composition-id="case" data-width="1920" data-height="1080">
     <!-- 場面 1 と同じ全体のグラフ → 1.0 の前後に寄ったグラフ -->
-    <div id="case-chart-clip" class="clip" data-start="0" data-duration="18.6" data-layout-allow-overlap>
+    <div id="case-chart-clip" class="clip" data-start="0" data-duration="25" data-layout-allow-overlap>
       <div id="case-full" class="case-card card">
         <h2>日ごとのダウンロード数</h2>
         <p>わたしの mod 50 件(2 つの配布サイト)の合計</p>
@@ -185,7 +185,7 @@
     </div>
 
     <!-- 6 個の mod が新しい版を出すまで -->
-    <div id="case-gantt-clip" class="clip" data-start="18.4" data-duration="17.8" data-hold>
+    <div id="case-gantt-clip" class="clip" data-start="24.8" data-duration="15.4" data-hold>
       <div id="case-gantt" class="card">
         <h2>修正が必要だった 6 個: 1.0 から新しい版を出すまで</h2>
         <svg id="case-gantt-svg"></svg>
@@ -197,7 +197,7 @@
     </div>
 
     <!-- 場面 1 の「? 回」の答え -->
-    <div id="case-answer-clip" class="clip" data-start="36" data-duration="24" data-hold>
+    <div id="case-answer-clip" class="clip" data-start="40" data-duration="22.66" data-hold>
       <div id="case-question">
         <div id="case-question-label">直すまでに、修正前の版がダウンロードされた数</div>
         <div id="case-question-value">
@@ -211,7 +211,8 @@
   </div>
   <script>
     (function () {
-      const CUES = { swap: 2.4, labels: 4.5, wait: 11.5, gantt: 18.6, median: 27.0, answer: 36.0, breakdown: 42.0, decide: 50.0 };
+      // labels は 1.0 / 1.0.1 / 1.0.2 の名前を出す時刻(それぞれ声で読まれるとき)
+      const CUES = { swap: 2.4, lines: 3.6, labels: [6.9, 9.2, 12.3], wait: 21.2, gantt: 25.0, median: 30.9, answer: 40.0, count: 43.3, breakdown: 46.6, decide: 55.9 };
       const MI = window.MI;
       const D = MI.data;
       const C = D.case10;
@@ -239,11 +240,11 @@
         t.textContent = text;
         return { ev, t };
       });
-      named.forEach(({ t }, i) => tl.fromTo(t, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.labels + i * 1.4));
+      named.forEach(({ t }, i) => tl.fromTo(t, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.labels[i]));
       tl.to(
         zoom.events.filter((e) => !named.some((n) => n.ev === e)).map((e) => e.g),
         { opacity: 0.3, duration: 0.3 },
-        CUES.labels,
+        CUES.lines,
       );
 
       // 1.0 から 1.0.2 まで「待つ」
@@ -299,16 +300,16 @@
 
       document.getElementById("case-med-a").textContent = C.medianDaysFromMajor;
       document.getElementById("case-med-b").textContent = C.medianDaysFrom102;
-      tl.fromTo(".case-median-item", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 2.2 }, CUES.median);
+      tl.fromTo(".case-median-item", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 4.8 }, CUES.median);
 
       // 答え: 場面 1 の「?」と同じ位置・大きさ
       MI.blurOut(tl, ["#case-gantt", "#case-median"], CUES.answer - 0.2);
       MI.blurIn(tl, "#case-question-label", CUES.answer);
-      tl.fromTo("#case-question-value", { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.answer + 0.3);
-      MI.countUp(tl, document.getElementById("case-answer"), C.oldDownloads, CUES.answer + 0.3);
+      tl.fromTo("#case-question-value", { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.count);
+      MI.countUp(tl, document.getElementById("case-answer"), C.oldDownloads, CUES.count);
       document.getElementById("case-answer-note").innerHTML =
         "Thunderstore のみ。1.0 の日と、新しい版が記録された日の<br />両方を含めて数えているので、多めの見積もり";
-      MI.blurIn(tl, "#case-answer-note", CUES.answer + 2.0);
+      MI.blurIn(tl, "#case-answer-note", CUES.count + 1.7);
 
       // 712 の内訳(多い順)
       const box = document.getElementById("case-breakdown");

@@ -84,7 +84,7 @@
     }
   </style>
   <div id="root" data-composition-id="audience" data-width="1920" data-height="1080">
-    <div id="aud-clip" class="clip" data-start="0" data-duration="22" data-hold data-layout-allow-overflow>
+    <div id="aud-clip" class="clip" data-start="0" data-duration="20.75" data-hold data-layout-allow-overflow>
       <div id="aud-head">
         <div id="aud-head-small">見ていただきたいのは</div>
         <div id="aud-head-big"><em>IT 企業</em>の方</div>
@@ -128,7 +128,7 @@
   </div>
   <script>
     (function () {
-      const CUES = { head: 0.2, chain: 3.6, since: 9.6, reuse: 14.2, roll1: 16.4, roll2: 18.0 };
+      const CUES = { head: 0.2, chain: 3.6, since: 10.5, reuse: 13.7, roll1: 15.8, roll2: 17.3 };
       const MI = window.MI;
       const tl = gsap.timeline({ paused: true });
 
@@ -138,7 +138,7 @@
       // 流れの順に 1 つずつ(矢印は手前の段と一緒に出る)
       const parts = [...document.querySelectorAll("#aud-chain > *")];
       parts.forEach((p, i) => {
-        tl.fromTo(p, { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, CUES.chain + i * 0.5);
+        tl.fromTo(p, { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, CUES.chain + i * 0.7);
       });
       MI.blurIn(tl, "#aud-since", CUES.since);
       MI.blurIn(tl, "#aud-reuse", CUES.reuse);
