@@ -1,0 +1,8 @@
+# 出力した動画、確認用の静止画、作業用のキャッシュ
+renders/
+snapshots/
+.media/
+.hyperframes/
+node_modules/
+# 録音(本人の声はリポジトリに含めない)
+assets/voice/
