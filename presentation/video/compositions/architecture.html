@@ -1,0 +1,307 @@
+<!--
+  場面 5: システム構成(原稿 5 節)
+  構成図を、話した部分から 1 つずつ組み上げる。
+  DB が止まっていて 50 秒かかる経路を先に見せてから、Blob Storage の経路に切り替える。
+  矢印の座標は、下の CSS で決めた箱の位置に合わせて書いている(箱を動かしたら矢印も直す)。
+-->
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    #arch-title {
+      position: absolute;
+      left: 96px;
+      top: 64px;
+      font-size: 44px;
+      font-weight: 700;
+    }
+    .arch-box {
+      position: absolute;
+      padding: 18px 22px;
+    }
+    .arch-name {
+      font-family: var(--font-num);
+      font-size: 32px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .arch-note {
+      font-size: 28px;
+      color: var(--ink-2);
+      margin-top: 4px;
+      white-space: nowrap;
+    }
+    #arch-ts { left: 96px; top: 200px; width: 320px; height: 104px; }
+    #arch-nx { left: 96px; top: 330px; width: 320px; height: 104px; }
+    #arch-steam { left: 96px; top: 460px; width: 320px; height: 104px; }
+    #arch-func { left: 520px; top: 170px; width: 480px; height: 430px; }
+    #arch-timer {
+      font-family: var(--font-num);
+      font-size: 28px;
+      color: var(--blue);
+      font-weight: 700;
+      margin-top: 4px;
+    }
+    .arch-adapter {
+      position: absolute;
+      left: 22px;
+      width: 220px;
+      font-family: var(--font-num);
+      font-size: 28px;
+      padding: 10px 14px;
+      border: 2px solid var(--grid);
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+    #arch-ad1 { top: 150px; }
+    #arch-ad2 { top: 222px; }
+    #arch-ad3 {
+      top: 294px;
+      border-style: dashed;
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+    #arch-shape {
+      position: absolute;
+      left: 290px;
+      top: 200px;
+      width: 168px;
+      padding: 14px;
+      border-radius: 8px;
+      background: var(--blue-wash);
+      font-size: 28px;
+      font-weight: 700;
+      text-align: center;
+      line-height: 1.3;
+    }
+    #arch-sql { left: 1120px; top: 220px; width: 300px; height: 140px; }
+    #arch-blob { left: 1120px; top: 460px; width: 300px; height: 140px; }
+    #arch-dash { left: 1520px; top: 330px; width: 304px; height: 160px; }
+    .arch-badge {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 28px;
+      font-weight: 700;
+      padding: 2px 12px;
+      border-radius: 6px;
+    }
+    #arch-paused {
+      color: #fff;
+      background: var(--orange);
+    }
+    #arch-wait {
+      position: absolute;
+      left: 1440px;
+      top: 150px;
+      text-align: left;
+    }
+    #arch-wait-value {
+      font-size: 96px;
+      font-weight: 900;
+      color: var(--orange);
+      line-height: 1;
+    }
+    .arch-wait-pre,
+    #arch-wait-unit {
+      font-size: 44px;
+      font-weight: 700;
+      color: var(--orange);
+    }
+    #arch-wait-note,
+    #arch-fast-note {
+      font-size: 28px;
+      color: var(--ink-2);
+      margin-top: 6px;
+    }
+    #arch-fast {
+      position: absolute;
+      left: 1440px;
+      top: 640px;
+    }
+    #arch-fast-value {
+      font-size: 96px;
+      font-weight: 900;
+      color: var(--blue);
+      line-height: 1;
+    }
+    #arch-fast-unit {
+      font-size: 44px;
+      font-weight: 700;
+      color: var(--blue);
+    }
+    #arch-deploy {
+      position: absolute;
+      left: 96px;
+      top: 800px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    #arch-deploy .arch-box {
+      position: static;
+    }
+    .arch-step-arrow {
+      font-size: 40px;
+      color: var(--ink-3);
+    }
+    #arch-test-ok {
+      color: #0ca30c;
+    }
+    #arch-svg {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: visible;
+    }
+    .arch-path {
+      fill: none;
+      stroke: var(--ink-3);
+      stroke-width: 3;
+    }
+    .arch-path-blue {
+      stroke: var(--blue);
+      stroke-width: 5;
+    }
+    .arch-path-orange {
+      stroke: var(--orange);
+      stroke-width: 5;
+    }
+    .arch-label {
+      font-size: 26px;
+      fill: var(--ink-2);
+    }
+  </style>
+  <div id="root" data-composition-id="architecture" data-width="1920" data-height="1080">
+    <div id="arch-clip" class="clip" data-start="0" data-duration="59" data-hold data-layout-allow-overlap>
+      <div id="arch-title">システム構成</div>
+
+      <svg id="arch-svg" viewBox="0 0 1920 1080">
+        <defs>
+          <marker id="arch-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="#898781" />
+          </marker>
+          <marker id="arch-head-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="#2a78d6" />
+          </marker>
+          <marker id="arch-head-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="#eb6834" />
+          </marker>
+        </defs>
+        <!-- 配布サイトと Steam から取得 -->
+        <g id="arch-p-src">
+          <path class="arch-path" d="M416,252 L516,252" marker-end="url(#arch-head)" />
+          <path class="arch-path" d="M416,382 L516,382" marker-end="url(#arch-head)" />
+          <path class="arch-path" d="M416,512 L516,512" marker-end="url(#arch-head)" />
+        </g>
+        <!-- 共通の形 → SQL -->
+        <path id="arch-p-sql" class="arch-path" d="M1000,290 L1116,290" marker-end="url(#arch-head)" />
+        <!-- 取得のあとに Blob を作り直す -->
+        <path id="arch-p-blob" class="arch-path" d="M1000,530 L1116,530" marker-end="url(#arch-head)" />
+        <!-- 画面 → DB(対策前) -->
+        <path id="arch-p-dashsql" class="arch-path arch-path-orange" d="M1518,380 L1424,300" marker-end="url(#arch-head-orange)" />
+        <!-- 画面 → Blob(対策後) -->
+        <path id="arch-p-dashblob" class="arch-path arch-path-blue" d="M1518,440 L1424,520" marker-end="url(#arch-head-blue)" />
+      </svg>
+
+      <div id="arch-ts" class="arch-box card"><div class="arch-name">Thunderstore</div><div class="arch-note">配布サイト</div></div>
+      <div id="arch-nx" class="arch-box card"><div class="arch-name">Nexus Mods</div><div class="arch-note">配布サイト</div></div>
+      <div id="arch-steam" class="arch-box card"><div class="arch-name">Steam</div><div class="arch-note">ゲームのお知らせ</div></div>
+
+      <div id="arch-func" class="arch-box card">
+        <div class="arch-name">Azure Functions</div>
+        <div id="arch-timer">タイマー: 毎日 0:00</div>
+        <div id="arch-ad1" class="arch-adapter">thunderstore.js</div>
+        <div id="arch-ad2" class="arch-adapter">nexusmods.js</div>
+        <div id="arch-ad3" class="arch-adapter">+ 1 ファイル</div>
+        <div id="arch-shape">共通の形に<br />そろえる</div>
+      </div>
+
+      <div id="arch-sql" class="arch-box card">
+        <div class="arch-name">Azure SQL</div>
+        <div class="arch-note">無料枠</div>
+        <span id="arch-paused" class="arch-badge">使わないと停止</span>
+      </div>
+      <div id="arch-blob" class="arch-box card">
+        <div class="arch-name">Blob Storage</div>
+        <div class="arch-note">API の応答を作り置き</div>
+      </div>
+      <div id="arch-dash" class="arch-box card">
+        <div class="arch-name">ダッシュボード</div>
+        <div class="arch-note">閲覧者が開く</div>
+      </div>
+
+      <div id="arch-wait">
+        <span class="arch-wait-pre">約 </span><span id="arch-wait-value" class="num">0</span><span id="arch-wait-unit"> 秒</span>
+        <div id="arch-wait-note">その日最初の表示(DB の起動待ち)</div>
+      </div>
+      <div id="arch-fast">
+        <span id="arch-fast-value" class="num">0.34</span><span id="arch-fast-unit"> 秒</span>
+        <div id="arch-fast-note">DB は止まったまま(2026-09-16 計測)</div>
+      </div>
+
+      <div id="arch-deploy">
+        <div class="arch-box card"><div class="arch-name">GitHub</div><div class="arch-note">main に入る</div></div>
+        <div class="arch-step-arrow">→</div>
+        <div class="arch-box card"><div class="arch-name">テスト <span id="arch-test-ok">✓</span></div><div class="arch-note">通ったものだけ</div></div>
+        <div class="arch-step-arrow">→</div>
+        <div class="arch-box card"><div class="arch-name">自動でデプロイ</div><div class="arch-note">パスワードは置かない(OIDC)</div></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const CUES = { title: 0.2, func: 1.5, sources: 4.5, adapters: 10.5, sql: 15.0, extra: 18.5, wait: 23.0, blob: 33.0, deploy: 47.0 };
+      const MI = window.MI;
+      const tl = gsap.timeline({ paused: true });
+
+      // 線を引く(長さを測ってから)
+      const draw = (sel, at, duration = 0.5) => {
+        document.querySelectorAll(sel).forEach((p) => {
+          const len = p.getTotalLength();
+          tl.fromTo(p, { opacity: 0, attr: { "stroke-dasharray": `${len} ${len}`, "stroke-dashoffset": len } }, { opacity: 1, attr: { "stroke-dashoffset": 0 }, duration, ease: "power2.inOut" }, at);
+        });
+      };
+
+      MI.blurIn(tl, "#arch-title", CUES.title);
+      tl.fromTo("#arch-func", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.5, ease: "expo.out" }, CUES.func);
+      gsap.set(["#arch-ad1", "#arch-ad2", "#arch-ad3", "#arch-shape"], { opacity: 0 });
+      tl.fromTo("#arch-timer", { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.func + 0.6);
+
+      tl.fromTo(["#arch-ts", "#arch-nx", "#arch-steam"], { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out", stagger: 0.5 }, CUES.sources);
+      draw("#arch-p-src path", CUES.sources + 1.6);
+
+      tl.fromTo(["#arch-ad1", "#arch-ad2"], { opacity: 0 }, { opacity: 1, duration: 0.2, stagger: 0.3 }, CUES.adapters);
+      MI.blurIn(tl, "#arch-shape", CUES.adapters + 1.4);
+
+      tl.fromTo("#arch-sql", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.5, ease: "expo.out" }, CUES.sql);
+      gsap.set("#arch-paused", { opacity: 0 });
+      draw("#arch-p-sql", CUES.sql + 0.3);
+
+      tl.fromTo("#arch-ad3", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: "expo.out" }, CUES.extra);
+
+      // 対策前: 画面が DB に問い合わせ、DB の起動を待つ
+      tl.fromTo("#arch-dash", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.5, ease: "expo.out" }, CUES.wait);
+      draw("#arch-p-dashsql", CUES.wait + 1.0);
+      tl.fromTo("#arch-paused", { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.wait + 1.6);
+      gsap.set("#arch-wait", { opacity: 0 });
+      tl.to("#arch-wait", { opacity: 1, duration: 0.2 }, CUES.wait + 2.4);
+      MI.countUp(tl, document.getElementById("arch-wait-value"), 50, CUES.wait + 2.4, { duration: 2.5 });
+
+      // 対策後: 取得のあとに Blob を作り直し、画面は Blob だけを読む
+      tl.fromTo("#arch-blob", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.5, ease: "expo.out" }, CUES.blob);
+      draw("#arch-p-blob", CUES.blob + 0.6);
+      draw("#arch-p-dashblob", CUES.blob + 4.0);
+      tl.to(["#arch-p-dashsql", "#arch-wait"], { opacity: 0.2, duration: 0.4 }, CUES.blob + 4.0);
+      gsap.set("#arch-fast", { opacity: 0 });
+      MI.blurIn(tl, "#arch-fast", CUES.blob + 4.8);
+
+      tl.fromTo("#arch-deploy > *", { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.4, ease: "expo.out", stagger: 0.6 }, CUES.deploy);
+
+      window.__timelines["architecture"] = tl;
+    })();
+  </script>
+</template>

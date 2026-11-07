@@ -1,0 +1,332 @@
+<!--
+  場面 6: 1.0 の 8 日間(原稿 6 節)
+  場面 1 と同じグラフに戻り、10/21〜11/06 に寄る。6 個の mod が修正版を出すまでの期間を帯で見せ、
+  場面 1 で保留した「? 回」の位置に 712 回を入れる。
+-->
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    .case-card {
+      position: absolute;
+      left: 96px;
+      top: 120px;
+      width: 1728px;
+      height: 700px;
+      padding: 36px 40px 24px;
+    }
+    .case-card h2 {
+      font-size: 30px;
+      font-weight: 700;
+    }
+    .case-card p {
+      font-size: 28px;
+      color: var(--ink-2);
+      margin-top: 4px;
+    }
+    .case-svg {
+      width: 1648px;
+      height: 560px;
+      margin-top: 8px;
+      overflow: visible;
+    }
+    .case-event-label {
+      font-family: var(--font-num);
+      font-size: 30px;
+      font-weight: 700;
+      fill: var(--event);
+    }
+    .case-wait {
+      font-size: 30px;
+      font-weight: 700;
+      fill: var(--orange);
+    }
+    #case-gantt {
+      position: absolute;
+      left: 96px;
+      top: 100px;
+      width: 1728px;
+      height: 640px;
+      padding: 36px 40px;
+    }
+    #case-gantt h2 {
+      font-size: 36px;
+      font-weight: 700;
+    }
+    #case-gantt-svg {
+      width: 1648px;
+      height: 520px;
+      margin-top: 12px;
+      overflow: visible;
+    }
+    .case-mod-name {
+      font-family: var(--font-num);
+      font-size: 30px;
+      fill: var(--ink);
+    }
+    .case-span {
+      fill: var(--orange);
+    }
+    .case-fixed {
+      font-family: var(--font-num);
+      font-size: 28px;
+      fill: var(--ink-2);
+    }
+    .case-days {
+      font-family: var(--font-num);
+      font-size: 30px;
+      font-weight: 700;
+      fill: var(--ink);
+    }
+    #case-median {
+      position: absolute;
+      left: 136px;
+      top: 790px;
+      display: flex;
+      gap: 96px;
+      align-items: baseline;
+    }
+    .case-median-item {
+      font-size: 36px;
+      color: var(--ink-2);
+    }
+    .case-median-item b {
+      font-family: var(--font-num);
+      font-size: 96px;
+      font-weight: 900;
+      color: var(--ink);
+      margin: 0 8px;
+    }
+    #case-question {
+      position: absolute;
+      left: 160px;
+      top: 300px;
+    }
+    #case-question-label {
+      font-size: 52px;
+      font-weight: 700;
+    }
+    #case-question-value {
+      position: relative;
+      display: flex;
+      align-items: baseline;
+      gap: 24px;
+      margin-top: 8px;
+    }
+    #case-answer {
+      font-family: var(--font-num);
+      font-size: 280px;
+      font-weight: 900;
+      line-height: 1;
+      color: var(--orange);
+    }
+    #case-question-unit {
+      font-size: 96px;
+      font-weight: 700;
+    }
+    #case-answer-note {
+      font-size: 30px;
+      color: var(--ink-2);
+      margin-top: 24px;
+      line-height: 1.5;
+    }
+    #case-breakdown {
+      position: absolute;
+      left: 1080px;
+      top: 470px;
+      width: 744px;
+    }
+    .case-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+    .case-row-name {
+      width: 300px;
+      font-family: var(--font-num);
+      font-size: 28px;
+      white-space: nowrap;
+    }
+    .case-row-bar {
+      height: 30px;
+      background: var(--orange);
+      border-radius: 3px;
+      transform-origin: left center;
+    }
+    .case-row-value {
+      font-family: var(--font-num);
+      font-size: 28px;
+      font-weight: 700;
+    }
+    #case-decide {
+      position: absolute;
+      left: 160px;
+      top: 900px;
+      font-size: 44px;
+      font-weight: 700;
+    }
+  </style>
+  <div id="root" data-composition-id="case" data-width="1920" data-height="1080">
+    <!-- 場面 1 と同じ全体のグラフ → 1.0 の前後に寄ったグラフ -->
+    <div id="case-chart-clip" class="clip" data-start="0" data-duration="18.6" data-layout-allow-overlap>
+      <div id="case-full" class="case-card card">
+        <h2>日ごとのダウンロード数</h2>
+        <p>わたしの mod 50 件(2 つの配布サイト)の合計</p>
+        <svg id="case-full-svg" class="case-svg"></svg>
+      </div>
+      <div id="case-zoom" class="case-card card">
+        <h2>日ごとのダウンロード数(10/21〜)</h2>
+        <p>縦線: ゲームの更新(実線 = 大型アップデート、破線 = パッチ)</p>
+        <svg id="case-zoom-svg" class="case-svg"></svg>
+      </div>
+    </div>
+
+    <!-- 6 個の mod が新しい版を出すまで -->
+    <div id="case-gantt-clip" class="clip" data-start="18.4" data-duration="17.8" data-hold>
+      <div id="case-gantt" class="card">
+        <h2>修正が必要だった 6 個: 1.0 から新しい版を出すまで</h2>
+        <svg id="case-gantt-svg"></svg>
+      </div>
+      <div id="case-median">
+        <div class="case-median-item">日数の中央値 1.0 から<b id="case-med-a" class="num"></b>日</div>
+        <div class="case-median-item">1.0.2 から<b id="case-med-b" class="num"></b>日</div>
+      </div>
+    </div>
+
+    <!-- 場面 1 の「? 回」の答え -->
+    <div id="case-answer-clip" class="clip" data-start="36" data-duration="24" data-hold>
+      <div id="case-question">
+        <div id="case-question-label">直すまでに、修正前の版がダウンロードされた数</div>
+        <div id="case-question-value">
+          <span id="case-answer">0</span><span id="case-question-unit">回</span>
+        </div>
+        <div id="case-answer-note"></div>
+      </div>
+      <div id="case-breakdown"></div>
+      <div id="case-decide">次に大きな更新が来たときの判断材料</div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const CUES = { swap: 2.4, labels: 4.5, wait: 11.5, gantt: 18.6, median: 27.0, answer: 36.0, breakdown: 42.0, decide: 50.0 };
+      const MI = window.MI;
+      const D = MI.data;
+      const C = D.case10;
+      const last = D.daily[D.daily.length - 1].date;
+      const tl = gsap.timeline({ paused: true });
+
+      // 場面 1 の終わりと同じ全体のグラフ
+      MI.drawDaily(document.getElementById("case-full-svg"), { width: 1648, height: 560, from: "2026-09-15", to: last });
+
+      // 寄ったグラフ
+      const zoom = MI.drawDaily(document.getElementById("case-zoom-svg"), { width: 1648, height: 560, from: "2026-10-21", to: last });
+      gsap.set("#case-zoom", { opacity: 0 });
+      MI.blurOut(tl, "#case-full", CUES.swap);
+      tl.fromTo("#case-zoom", { opacity: 0, scale: 1.04, filter: "blur(8px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.5, ease: "expo.out" }, CUES.swap + 0.1);
+
+      // 1.0 / 1.0.1 / 1.0.2 に名前をつける(1.0.1 と 1.0.2 は隣り合うので高さをずらす)
+      // 1.0 は線の左、1.0.1 と 1.0.2 は線の右に置く
+      const named = [
+        ["SULFUR 1.0", "game_major", 0, "end"],
+        ["1.0.1", "1.0.1", 0, "start"],
+        ["1.0.2", "1.0.2", 1, "start"],
+      ].map(([text, key, row, anchor]) => {
+        const ev = zoom.events.find((e) => (key === "game_major" ? e.kind === key : e.title.includes(key)));
+        const t = MI.el("text", { x: ev.x + (anchor === "end" ? -10 : 10), y: 24 + row * 36, "text-anchor": anchor, class: "case-event-label" }, ev.g);
+        t.textContent = text;
+        return { ev, t };
+      });
+      named.forEach(({ t }, i) => tl.fromTo(t, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.labels + i * 1.4));
+      tl.to(
+        zoom.events.filter((e) => !named.some((n) => n.ev === e)).map((e) => e.g),
+        { opacity: 0.3, duration: 0.3 },
+        CUES.labels,
+      );
+
+      // 1.0 から 1.0.2 まで「待つ」
+      const a = named[0].ev.x, b = named[2].ev.x, wy = 120;
+      const wait = MI.el("g", {}, document.getElementById("case-zoom-svg"));
+      MI.el("path", { d: `M${a},${wy + 14} L${a},${wy} L${b},${wy} L${b},${wy + 14}`, fill: "none", stroke: "#eb6834", "stroke-width": 4 }, wait);
+      const wt = MI.el("text", { x: (a + b) / 2, y: wy - 14, "text-anchor": "middle", class: "case-wait" }, wait);
+      wt.textContent = "待つ";
+      tl.fromTo(wait, { opacity: 0 }, { opacity: 1, duration: 0.3 }, CUES.wait);
+
+      // 帯グラフ: 1.0 の日から、新しい版が初めて記録された日まで
+      tl.to("#case-zoom", { opacity: 0, y: -30, filter: "blur(8px)", duration: 0.3, ease: "power3.in" }, CUES.gantt - 0.3);
+      const gsvg = document.getElementById("case-gantt-svg");
+      const GW = 1648, GH = 520, left = 360, right = 220, top = 60;
+      gsvg.setAttribute("viewBox", `0 0 ${GW} ${GH}`);
+      const startDay = C.day;
+      const dayMs = 86400000;
+      const di = (date) => (Date.parse(date) - Date.parse(startDay)) / dayMs;
+      const span = 9; // 10/28 から 11/06 まで
+      const gx = (date) => left + ((GW - left - right) * di(date)) / span;
+      const grid = MI.el("g", { class: "mi-grid" }, gsvg);
+      for (let k = 0; k <= span; k++) {
+        const date = new Date(Date.parse(startDay) + k * dayMs).toISOString().slice(0, 10);
+        MI.el("line", { x1: gx(date), x2: gx(date), y1: top - 10, y2: GH - 10 }, grid);
+        if (k % 2 === 0 || k === span) {
+          MI.el("text", { x: gx(date), y: top - 22, "text-anchor": "middle", class: "mi-axis" }, grid).textContent = MI.md(date);
+        }
+      }
+      const p102 = D.gameEvents.find((e) => e.title.includes("1.0.2"));
+      MI.el("line", { x1: gx(p102.date), x2: gx(p102.date), y1: top - 10, y2: GH - 10, class: "mi-event-patch" }, gsvg);
+      MI.el("text", { x: gx(p102.date) + 10, y: GH + 22, class: "case-event-label" }, gsvg).textContent = "1.0.2";
+      const rowH = (GH - top - 20) / C.mods.length;
+      const rows = C.mods.map((m, i) => {
+        const cy = top + rowH * i + rowH / 2;
+        const g = MI.el("g", {}, gsvg);
+        MI.el("text", { x: left - 24, y: cy + 10, "text-anchor": "end", class: "case-mod-name" }, g).textContent = m.name.replace(/_/g, " ");
+        const bar = MI.el("rect", { x: gx(startDay), y: cy - 18, width: gx(m.fixedDay) - gx(startDay), height: 36, rx: 4, class: "case-span" }, g);
+        bar.style.transformBox = "fill-box";
+        bar.style.transformOrigin = "left center";
+        const dot = MI.el("circle", { cx: gx(m.fixedDay), cy, r: 12, fill: "#2a78d6" }, g);
+        const lab = MI.el("text", { x: gx(m.fixedDay) + 24, y: cy + 10, class: "case-days" }, g);
+        lab.textContent = `${m.days} 日`;
+        const ver = MI.el("text", { x: gx(m.fixedDay) + 100, y: cy + 10, class: "case-fixed" }, g);
+        ver.textContent = `${m.to}`;
+        return { g, bar, dot, lab, ver };
+      });
+      MI.blurIn(tl, "#case-gantt", CUES.gantt);
+      rows.forEach((r, i) => {
+        const at = CUES.gantt + 0.8 + i * 0.5;
+        tl.fromTo(r.bar, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "power2.out" }, at);
+        tl.fromTo([r.dot, r.lab, r.ver], { opacity: 0 }, { opacity: 1, duration: 0.2 }, at + 0.6);
+      });
+
+      document.getElementById("case-med-a").textContent = C.medianDaysFromMajor;
+      document.getElementById("case-med-b").textContent = C.medianDaysFrom102;
+      tl.fromTo(".case-median-item", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 2.2 }, CUES.median);
+
+      // 答え: 場面 1 の「?」と同じ位置・大きさ
+      MI.blurOut(tl, ["#case-gantt", "#case-median"], CUES.answer - 0.2);
+      MI.blurIn(tl, "#case-question-label", CUES.answer);
+      tl.fromTo("#case-question-value", { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.answer + 0.3);
+      MI.countUp(tl, document.getElementById("case-answer"), C.oldDownloads, CUES.answer + 0.3);
+      document.getElementById("case-answer-note").innerHTML =
+        "Thunderstore のみ。1.0 の日と、新しい版が記録された日の<br />両方を含めて数えているので、多めの見積もり";
+      MI.blurIn(tl, "#case-answer-note", CUES.answer + 2.0);
+
+      // 712 の内訳(多い順)
+      const box = document.getElementById("case-breakdown");
+      const sorted = [...C.mods].sort((p, q) => q.oldDownloads - p.oldDownloads);
+      const max = sorted[0].oldDownloads;
+      sorted.forEach((m, i) => {
+        const row = document.createElement("div");
+        row.className = "case-row";
+        row.innerHTML = `<span class="case-row-name">${m.name.replace(/_/g, " ")}</span><span class="case-row-bar" style="width:${Math.round((300 * m.oldDownloads) / max)}px"></span><span class="case-row-value num">${m.oldDownloads}</span>`;
+        box.appendChild(row);
+        tl.fromTo(row, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.breakdown + i * 0.25);
+        tl.fromTo(row.querySelector(".case-row-bar"), { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "power2.out" }, CUES.breakdown + i * 0.25);
+      });
+
+      gsap.set("#case-decide", { opacity: 0 });
+      MI.blurIn(tl, "#case-decide", CUES.decide);
+
+      window.__timelines["case"] = tl;
+    })();
+  </script>
+</template>
