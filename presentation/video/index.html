@@ -1,15 +1,28 @@
 <!doctype html>
-<html lang="en" data-resolution="landscape">
+<html lang="ja" data-resolution="landscape">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1920, height=1080" />
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+    <!-- 数字(公開 API から生成)と、場面で共通の描き方 -->
+    <script src="assets/data.js"></script>
+    <script src="assets/common.js"></script>
     <style>
-      /* Placeholders: replace all three with the film's own palette and display face. */
+      /* ダッシュボード(web/style.css)と同じ色 */
       :root {
-        --ground: #000;
-        --ink: #ffffff;
-        --font-display: sans-serif;
+        --ground: #f9f9f7;
+        --surface: #fcfcfb;
+        --ink: #0b0b0b;
+        --ink-2: #52514e;
+        --ink-3: #898781;
+        --grid: #e1e0d9;
+        --border: rgba(11, 11, 11, 0.1);
+        --blue: #2a78d6;
+        --blue-wash: rgba(42, 120, 214, 0.1);
+        --orange: #eb6834;
+        --event: #2e2d2a;
+        --font-jp: "Noto Sans JP", sans-serif;
+        --font-num: "Inter", "Noto Sans JP", sans-serif;
       }
       * {
         margin: 0;
@@ -18,44 +31,168 @@
       }
       html,
       body {
-        margin: 0;
         width: 1920px;
         height: 1080px;
         overflow: hidden;
         background: var(--ground);
+        color: var(--ink);
+        font-family: var(--font-jp);
       }
       #root {
         width: 100%;
         height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: var(--font-display);
       }
-      #title {
-        color: var(--ink);
-        font-size: 72px;
-        font-weight: 600;
-        letter-spacing: -0.03em;
+      /* 場面で共通の部品 */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(11, 11, 11, 0.06);
+      }
+      .num {
+        font-family: var(--font-num);
+        font-variant-numeric: tabular-nums;
+      }
+      .source {
+        font-size: 28px;
+        color: var(--ink-2);
+      }
+      .mi-grid line {
+        stroke: var(--grid);
+        stroke-width: 1.5;
+      }
+      .mi-axis {
+        font-family: var(--font-num);
+        font-size: 28px;
+        fill: var(--ink-2);
+      }
+      .mi-bar {
+        fill: var(--blue);
+      }
+      .mi-event-major {
+        stroke: var(--event);
+        stroke-width: 4;
+      }
+      .mi-event-patch {
+        stroke: var(--event);
+        stroke-width: 3;
+        stroke-dasharray: 10 8;
       }
     </style>
   </head>
   <body>
+    <!-- 場面の長さは録音前の仮の値(原稿の文字数から見積もり)。録音を編集したあと、音声に合わせて直す -->
     <div
       id="root"
       data-composition-id="main"
       data-start="0"
-      data-duration="10"
+      data-duration="276"
       data-width="1920"
       data-height="1080"
     >
-      <h1 id="title" class="clip" data-start="0" data-duration="10" data-track-index="0">Title</h1>
+      <div
+        id="hook"
+        data-composition-id="hook"
+        data-composition-src="compositions/hook.html"
+        data-start="0"
+        data-duration="24"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="title"
+        data-composition-id="title"
+        data-composition-src="compositions/title.html"
+        data-start="24"
+        data-duration="10"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="purpose"
+        data-composition-id="purpose"
+        data-composition-src="compositions/purpose.html"
+        data-start="34"
+        data-duration="36"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="audience"
+        data-composition-id="audience"
+        data-composition-src="compositions/audience.html"
+        data-start="70"
+        data-duration="22"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="architecture"
+        data-composition-id="architecture"
+        data-composition-src="compositions/architecture.html"
+        data-start="92"
+        data-duration="59"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="case"
+        data-composition-id="case"
+        data-composition-src="compositions/case.html"
+        data-start="151"
+        data-duration="60"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="operations"
+        data-composition-id="operations"
+        data-composition-src="compositions/operations.html"
+        data-start="211"
+        data-duration="28"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="next"
+        data-composition-id="next"
+        data-composition-src="compositions/next.html"
+        data-start="239"
+        data-duration="22"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div
+        id="close"
+        data-composition-id="close"
+        data-composition-src="compositions/close.html"
+        data-start="261"
+        data-duration="15"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
     </div>
     <script>
-      const tl = gsap.timeline({ paused: true });
-      // Example: tl.fromTo("#title", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.18, ease: "power4.out" }, 0);
-      window.__timelines["main"] = tl;
-      tl.seek(0);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = gsap.timeline({ paused: true });
     </script>
   </body>
 </html>
