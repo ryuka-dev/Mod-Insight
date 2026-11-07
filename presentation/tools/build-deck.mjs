@@ -36,8 +36,10 @@ async function loadData() {
 
 // 原稿を「## 番号. 名前」ごとに分け、番号 → 本文 の表にする(発表者ノート用)
 async function loadScript() {
-  const text = await readFile(join(ROOT, "script.md"), "utf8");
+  // Windows で取り出すと改行が CRLF になるので、LF にそろえてから分ける
+  const text = (await readFile(join(ROOT, "script.md"), "utf8")).replace(/\r\n/g, "\n");
   const body = text.split("\n---\n")[1] ?? "";
+  if (!body) throw new Error("script.md に区切り(---)が見つからない");
   const sections = {};
   for (const block of body.split(/^## /m).slice(1)) {
     const [head, ...lines] = block.split("\n");
