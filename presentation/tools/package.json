@@ -5,9 +5,11 @@
   "description": "発表資料(企画書と動画の数字)を作るスクリプト",
   "scripts": {
     "data": "node fetch-data.mjs",
-    "deck": "node build-deck.mjs"
+    "deck": "node build-deck.mjs",
+    "qr": "node make-qr.mjs"
   },
   "devDependencies": {
-    "pptxgenjs": "3.12.0"
+    "pptxgenjs": "3.12.0",
+    "qrcode": "1.5.4"
   }
 }

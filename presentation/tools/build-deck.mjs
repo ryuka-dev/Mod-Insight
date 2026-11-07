@@ -2,7 +2,8 @@
 //
 // 解決すること: 企画書と発表動画で数字や構成がずれないように、どちらも同じデータ(video/assets/data.js)と
 //   同じ原稿(script.md)から作る。PowerPoint を手で編集すると、データを取り直したときに直す場所が増えるため。
-// 入力: ../video/assets/data.js(fetch-data.mjs が生成)、../script.md(発表者ノートに入れる)、../deck/images/*.png
+// 入力: ../video/assets/data.js(fetch-data.mjs が生成)、../script.md(発表者ノートに入れる)、../deck/images/*.png、
+//       ../video/assets/presenter.js(発表者の名前。Git の対象外。無ければ名前なしで作る)
 // 出力: ../deck/renders/Mod-Insight-企画書.pptx(提出用のファイル名には別途クラス記号などを付ける)
 //
 // 使い方: cd presentation/tools && npm install && npm run deck
@@ -46,8 +47,29 @@ async function loadScript() {
   return sections;
 }
 
+// 発表者の名前とクラスの情報。リポジトリに入れないので、Git の対象外の presenter.js から読む。
+// 無いときは見本(空の値)を使い、名前を出さずに作る
+async function loadPresenter() {
+  for (const file of ["presenter.js", "presenter.example.js"]) {
+    try {
+      const code = await readFile(join(ROOT, "video", "assets", file), "utf8");
+      const sandbox = { window: {} };
+      vm.runInNewContext(code, sandbox);
+      return sandbox.window.MI_PRESENTER;
+    } catch (err) {
+      if (err.code !== "ENOENT") throw err;
+    }
+  }
+  return { name: "", classCode: "", number: "" };
+}
+
 const D = await loadData();
-const SCRIPT = await loadScript();
+const PRESENTER = await loadPresenter();
+// 原稿の「〇〇」は発表者の名前の場所。ノートには実際の名前を入れる
+const SCRIPT = Object.fromEntries(
+  Object.entries(await loadScript()).map(([k, v]) => [k, PRESENTER.name ? v.replaceAll("〇〇", PRESENTER.name) : v]),
+);
+const AFFILIATION = `HAL 東京 情報処理学科 ${PRESENTER.name}`.trim();
 const fmt = (n) => Math.round(n).toLocaleString("en-US");
 const md = (date) => {
   const [, m, d] = date.split("-");
@@ -84,7 +106,7 @@ const GRID = "E1E0D9";
 
 const pres = new PptxGenJS();
 pres.layout = "LAYOUT_WIDE"; // 13.333 x 7.5 インチ
-pres.author = "";
+pres.author = PRESENTER.name;
 pres.title = "Mod Insight 企画書";
 pres.theme = { headFontFace: FONT, bodyFontFace: FONT };
 const C = pres.SchemeColor;
@@ -181,7 +203,7 @@ const notes = (slide, ...nos) => {
   text(s, "就職作品 企画書", { x: 0.8, y: 1.2, w: 5, h: 0.4, fontSize: 16, color: C.text2 });
   s.addText([{ text: "Mod " }, { text: "Insight", options: { color: C.accent1 } }], { placeholder: "title" });
   s.addText("配布サイトの公開データを毎日集めて\n分析するシステム", { placeholder: "body" });
-  text(s, "HAL 東京 情報処理学科", { x: 0.8, y: 5.6, w: 6, h: 0.4, fontSize: 16 });
+  text(s, AFFILIATION, { x: 0.8, y: 5.6, w: 6, h: 0.4, fontSize: 16 });
   text(s, "2026 年 11 月", { x: 0.8, y: 6.05, w: 6, h: 0.4, fontSize: 14, color: C.text2 });
 
   const days = D.daily;
@@ -472,8 +494,12 @@ const notes = (slide, ...nos) => {
   const s = pres.addSlide({ masterName: "COVER" });
   s.addText([{ text: "Mod " }, { text: "Insight", options: { color: C.accent1 } }], { placeholder: "title" });
   s.addText("ゲームの更新から mod の修正までを\n毎日の数字で追う", { placeholder: "body" });
-  text(s, "ダッシュボード: insight.ryuka.cloud\nソースコード: github.com/ryuka-dev/Mod-Insight", { x: 0.8, y: 4.4, w: 8, h: 0.9, fontSize: 16, color: C.text2, paraSpaceAfter: 4 });
-  text(s, "HAL 東京 情報処理学科", { x: 0.8, y: 5.6, w: 6, h: 0.4, fontSize: 16 });
+  text(s, "ダッシュボード: insight.ryuka.cloud\nソースコード: github.com/ryuka-dev/Mod-Insight", { x: 0.8, y: 4.4, w: 6.8, h: 0.9, fontSize: 16, color: C.text2, paraSpaceAfter: 4 });
+  // スマートフォンで読み取るとダッシュボードが開く
+  card(s, 8.9, 1.5, 3.6, 4.2, "QR コードの台紙");
+  s.addImage({ path: IMG("qr-insight.png"), x: 9.2, y: 1.75, w: 3.0, h: 3.0, altText: "insight.ryuka.cloud を開く QR コード", objectName: "QR コード" });
+  text(s, "読み取るとダッシュボードが開きます", { x: 8.9, y: 4.95, w: 3.6, h: 0.4, fontSize: 13, color: C.text2, align: "center" });
+  text(s, AFFILIATION, { x: 0.8, y: 5.6, w: 6, h: 0.4, fontSize: 16 });
   notes(s, 9);
 }
 
@@ -499,3 +525,11 @@ for (const [name, entry] of Object.entries(zip.files)) {
 }
 await writeFile(OUT, await out.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
 console.log(`書き出し: ${OUT}`);
+
+// 提出用: 「クラス記号_出席番号_名前_企画書.pptx」の名前でも置く(presenter.js に値があるときだけ)
+const { classCode, number, name } = PRESENTER;
+if (classCode && number && name) {
+  const submit = join(OUT_DIR, `${classCode}_${number}_${name}_企画書.pptx`);
+  await writeFile(submit, await readFile(OUT));
+  console.log(`提出用: ${submit}`);
+}

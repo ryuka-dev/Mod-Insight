@@ -11,6 +11,7 @@
       position: absolute;
       left: 160px;
       top: 280px;
+      width: 1100px;
     }
     #close-name {
       font-family: var(--font-num);
@@ -35,6 +36,26 @@
       line-height: 1.6;
       color: var(--ink-2);
     }
+    #close-qr {
+      position: absolute;
+      left: 1340px;
+      top: 300px;
+      width: 420px;
+      text-align: center;
+    }
+    #close-qr-img {
+      display: block;
+      width: 420px;
+      height: 420px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(11, 11, 11, 0.06);
+    }
+    #close-qr-note {
+      margin-top: 20px;
+      font-size: 32px;
+      color: var(--ink-2);
+    }
     #close-who {
       margin-top: 40px;
       font-size: 36px;
@@ -42,14 +63,18 @@
   </style>
   <div id="root" data-composition-id="close" data-width="1920" data-height="1080">
     <div id="close-clip" class="clip" data-start="0" data-duration="15" data-hold>
+      <div id="close-qr">
+        <img id="close-qr-img" src="assets/qr-insight.svg" alt="insight.ryuka.cloud の QR コード" />
+        <div id="close-qr-note">ダッシュボードを開く</div>
+      </div>
       <div id="close-box">
         <div id="close-name">Mod <em>Insight</em></div>
-        <div id="close-line">ゲームの更新から mod の修正までを、毎日の数字で追う</div>
+        <div id="close-line">ゲームの更新から mod の修正までを、<br />毎日の数字で追う</div>
         <div id="close-links">
           <div>insight.ryuka.cloud</div>
           <div>github.com/ryuka-dev/Mod-Insight</div>
         </div>
-        <div id="close-who">HAL 東京 情報処理学科</div>
+        <div id="close-who">HAL 東京 情報処理学科 <span id="close-person"></span></div>
       </div>
     </div>
   </div>
@@ -58,9 +83,11 @@
       const CUES = { name: 0.2, line: 1.4, links: 4.0, who: 6.5 };
       const MI = window.MI;
       const tl = gsap.timeline({ paused: true });
+      document.getElementById("close-person").textContent = MI.presenter.name;
       MI.blurIn(tl, "#close-name", CUES.name, 0.3);
       MI.blurIn(tl, "#close-line", CUES.line);
       MI.blurIn(tl, "#close-links", CUES.links);
+      tl.fromTo("#close-qr", { opacity: 0, scale: 0.94 }, { opacity: 1, scale: 1, duration: 0.5, ease: "expo.out" }, CUES.links + 0.4);
       MI.blurIn(tl, "#close-who", CUES.who);
       window.__timelines["close"] = tl;
     })();
