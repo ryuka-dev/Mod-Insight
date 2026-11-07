@@ -1,0 +1,201 @@
+<!--
+  場面 3: 企画の目的(原稿 3 節)
+  2 つの配布サイトの合計を 1 つの数字で見せ、それが「今の合計」しか分からないことを示してから、
+  同じ数字を毎日の記録の折れ線にほどく。
+-->
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    #purpose-sites {
+      position: absolute;
+      left: 160px;
+      top: 150px;
+      display: flex;
+      gap: 120px;
+    }
+    .purpose-site-name {
+      font-family: var(--font-num);
+      font-size: 56px;
+      font-weight: 700;
+    }
+    .purpose-site-count {
+      font-size: 40px;
+      color: var(--ink-2);
+      margin-top: 8px;
+    }
+    #purpose-total {
+      position: absolute;
+      left: 160px;
+      top: 400px;
+    }
+    .purpose-labels {
+      position: relative;
+      height: 58px;
+    }
+    #purpose-total-label,
+    #purpose-total-label-only {
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-size: 40px;
+      white-space: nowrap;
+    }
+    #purpose-total-label {
+      color: var(--ink-2);
+    }
+    #purpose-total-label-only {
+      font-weight: 700;
+      opacity: 0;
+    }
+    #purpose-total-value {
+      font-size: 220px;
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+    #purpose-total .source {
+      margin-top: 4px;
+    }
+    #purpose-questions {
+      position: absolute;
+      left: 1120px;
+      top: 470px;
+    }
+    .purpose-q {
+      font-size: 52px;
+      font-weight: 700;
+      color: var(--ink-3);
+      margin-bottom: 40px;
+    }
+    #purpose-chart {
+      position: absolute;
+      left: 96px;
+      top: 130px;
+      width: 1728px;
+      height: 780px;
+      padding: 40px 48px;
+    }
+    #purpose-chart h2 {
+      font-size: 40px;
+      font-weight: 700;
+    }
+    #purpose-svg {
+      width: 1632px;
+      height: 620px;
+      margin-top: 16px;
+      overflow: visible;
+    }
+    .purpose-line {
+      fill: none;
+      stroke: var(--blue);
+      stroke-width: 5;
+      stroke-linejoin: round;
+    }
+    .purpose-area {
+      fill: var(--blue-wash);
+    }
+    .purpose-end {
+      font-family: var(--font-num);
+      font-size: 44px;
+      font-weight: 700;
+      fill: var(--ink);
+    }
+  </style>
+  <div id="root" data-composition-id="purpose" data-width="1920" data-height="1080">
+    <div id="purpose-a" class="clip" data-start="0" data-duration="21.83" data-hold>
+      <div id="purpose-sites">
+        <div class="purpose-site">
+          <div class="purpose-site-name">Thunderstore</div>
+          <div class="purpose-site-count">mod 25 個</div>
+        </div>
+        <div class="purpose-site">
+          <div class="purpose-site-name">Nexus Mods</div>
+          <div class="purpose-site-count">mod 25 個</div>
+        </div>
+      </div>
+      <div id="purpose-total">
+        <div class="purpose-labels">
+          <div id="purpose-total-label">ダウンロードの合計</div>
+          <div id="purpose-total-label-only">配布サイトで見られるのは、今の合計だけ</div>
+        </div>
+        <div id="purpose-total-value" class="num">0</div>
+        <div class="source" id="purpose-total-source"></div>
+      </div>
+      <div id="purpose-questions">
+        <div class="purpose-q">昨日は何件増えた?</div>
+        <div class="purpose-q">ゲームの更新で何が変わった?</div>
+      </div>
+    </div>
+
+    <div id="purpose-b" class="clip" data-start="21.63" data-duration="7.95" data-hold>
+      <div id="purpose-chart" class="card">
+        <h2>毎日 0 時に記録した合計の推移</h2>
+        <svg id="purpose-svg"></svg>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const CUES = { sites: 0.8, total: 9.54, only: 12.99, questions: 16.79, record: 21.83 };
+      const MI = window.MI;
+      const D = MI.data;
+      const tl = gsap.timeline({ paused: true });
+
+      // captured_at は UTC。定時の取得(UTC 15:00)は日本時間の翌日 0:00 にあたる
+      const jst = new Date(Date.parse(D.latestCapturedAt) + 9 * 3600 * 1000).toISOString();
+      document.getElementById("purpose-total-source").textContent =
+        `2 つのサイトの合計(${jst.slice(0, 10).replace(/-/g, "/")} ${jst.slice(11, 16)} の記録)`;
+
+      tl.fromTo(".purpose-site", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 1.02 }, CUES.sites);
+      MI.blurIn(tl, "#purpose-total-label", CUES.total);
+      MI.countUp(tl, document.getElementById("purpose-total-value"), D.totals.all, CUES.total + 0.2);
+      MI.blurIn(tl, "#purpose-total-source", CUES.total + 1.4);
+
+      // 配布サイトで見えるのはこの 1 つの数字だけ
+      tl.to("#purpose-sites", { opacity: 0.25, duration: 0.3 }, CUES.only);
+      MI.blurOut(tl, "#purpose-total-label", CUES.only - 0.2);
+      MI.blurIn(tl, "#purpose-total-label-only", CUES.only);
+
+      const qs = document.querySelectorAll(".purpose-q");
+      tl.fromTo(qs, { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, stagger: 1.74 }, CUES.questions);
+
+      MI.blurOut(tl, ["#purpose-sites", "#purpose-questions", "#purpose-total"], CUES.record - 0.2);
+
+      // 折れ線: 両サイトがそろった 9/16 以降の取得回ごとの合計
+      const pts = D.totalsSeries.filter((p) => p.date >= "2026-09-16");
+      const W = 1632, H = 620, pad = { l: 120, r: 200, t: 30, b: 60 };
+      const svg = document.getElementById("purpose-svg");
+      svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      const lo = 30000, hi = 55000;
+      const x = (i) => pad.l + ((W - pad.l - pad.r) * i) / (pts.length - 1);
+      const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo));
+      const grid = MI.el("g", { class: "mi-grid" }, svg);
+      for (let v = lo; v <= hi; v += 5000) {
+        MI.el("line", { x1: pad.l, x2: W - pad.r, y1: y(v), y2: y(v) }, grid);
+        MI.el("text", { x: pad.l - 16, y: y(v) + 9, "text-anchor": "end", class: "mi-axis" }, grid).textContent = MI.fmt(v);
+      }
+      [0, Math.floor(pts.length / 2), pts.length - 1].forEach((i) => {
+        MI.el("text", { x: x(i), y: H - 12, "text-anchor": "middle", class: "mi-axis" }, svg).textContent = MI.md(pts[i].date);
+      });
+      const d = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+      const area = MI.el("path", { d: `${d} L${x(pts.length - 1)},${y(lo)} L${x(0)},${y(lo)} Z`, class: "purpose-area" }, svg);
+      const line = MI.el("path", { d, class: "purpose-line" }, svg);
+      const last = pts[pts.length - 1];
+      const dot = MI.el("circle", { cx: x(pts.length - 1), cy: y(last.value), r: 10, fill: "#2a78d6" }, svg);
+      const endLabel = MI.el("text", { x: x(pts.length - 1) + 24, y: y(last.value) + 14, class: "purpose-end" }, svg);
+      endLabel.textContent = MI.fmt(last.value);
+
+      // 線を左から引く(長さは描いたあとに測る)
+      const len = line.getTotalLength();
+      MI.blurIn(tl, "#purpose-chart", CUES.record);
+      tl.fromTo(line, { attr: { "stroke-dasharray": `${len} ${len}`, "stroke-dashoffset": len } }, { attr: { "stroke-dashoffset": 0 }, duration: 2.4, ease: "power2.inOut" }, CUES.record + 0.4);
+      tl.fromTo(area, { opacity: 0 }, { opacity: 1, duration: 0.6 }, CUES.record + 2.2);
+      tl.fromTo([dot, endLabel], { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.record + 2.7);
+
+      window.__timelines["purpose"] = tl;
+    })();
+  </script>
+</template>

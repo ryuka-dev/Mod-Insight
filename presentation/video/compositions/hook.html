@@ -1,0 +1,242 @@
+<!--
+  場面 1: 1.0 の日(原稿 1 節)
+  日ごとの増加のグラフに 10/28 の線が落ち、25 個の mod のうち 6 個が修正の必要な状態になる。
+  最後に「? 回」を出し、答え(712 回)は場面 6 まで保留する。
+-->
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+    }
+    #hook-chart {
+      position: absolute;
+      left: 96px;
+      top: 120px;
+      width: 1728px;
+      height: 700px;
+      padding: 36px 40px 24px;
+    }
+    #hook-chart h2 {
+      font-size: 30px;
+      font-weight: 700;
+    }
+    #hook-chart p {
+      font-size: 28px;
+      color: var(--ink-2);
+      margin-top: 4px;
+    }
+    #hook-svg {
+      width: 1648px;
+      height: 560px;
+      margin-top: 8px;
+      overflow: visible;
+    }
+    .hook-event-label {
+      font-family: var(--font-num);
+      font-size: 30px;
+      font-weight: 700;
+      fill: var(--event);
+    }
+    #hook-date {
+      position: absolute;
+      left: 96px;
+      top: 864px;
+      font-size: 64px;
+      font-weight: 700;
+    }
+    #hook-mods {
+      position: absolute;
+      left: 96px;
+      top: 120px;
+      width: 1728px;
+    }
+    #hook-mods-head {
+      display: flex;
+      align-items: baseline;
+      gap: 32px;
+      font-size: 36px;
+      font-weight: 700;
+    }
+    #hook-mods-count {
+      font-size: 96px;
+      color: var(--orange);
+    }
+    #hook-grid {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      column-gap: 28px;
+      row-gap: 26px;
+    }
+    .hook-mod {
+      font-family: var(--font-num);
+      font-size: 34px;
+      line-height: 1.3;
+      color: var(--ink-2);
+      padding: 14px 0 14px 20px;
+      border-left: 6px solid var(--grid);
+    }
+    #hook-question {
+      position: absolute;
+      left: 160px;
+      top: 300px;
+    }
+    #hook-question-label {
+      font-size: 52px;
+      font-weight: 700;
+    }
+    #hook-question-value {
+      display: flex;
+      align-items: baseline;
+      gap: 24px;
+      margin-top: 8px;
+    }
+    #hook-question-mark {
+      font-family: var(--font-num);
+      font-size: 280px;
+      font-weight: 900;
+      line-height: 1;
+      color: var(--orange);
+    }
+    #hook-question-note {
+      margin-top: 32px;
+      font-size: 40px;
+      color: var(--ink-2);
+    }
+    #hook-question-unit {
+      font-size: 96px;
+      font-weight: 700;
+    }
+  </style>
+  <div id="root" data-composition-id="hook" data-width="1920" data-height="1080">
+    <div id="hook-chart-clip" class="clip" data-start="0" data-duration="6.8">
+      <div id="hook-chart" class="card">
+        <h2>日ごとのダウンロード数</h2>
+        <p>わたしの mod 50 件(2 つの配布サイト)の合計</p>
+        <svg id="hook-svg"></svg>
+      </div>
+      <div id="hook-date" class="num">2026年10月28日</div>
+    </div>
+
+    <div id="hook-mods-clip" class="clip" data-start="5.2" data-duration="6.73" data-hold>
+      <div id="hook-mods">
+        <div id="hook-mods-head">
+          <span>1.0 で修正が必要になった mod</span>
+          <span id="hook-mods-count" class="num">6</span>
+          <span id="hook-mods-of">/ 25 個</span>
+        </div>
+        <div id="hook-grid"></div>
+      </div>
+    </div>
+
+    <div id="hook-question-clip" class="clip" data-start="11.33" data-duration="7.77" data-hold>
+      <div id="hook-question">
+        <div id="hook-question-label">直すまでに、修正前の版がダウンロードされた数</div>
+        <div id="hook-question-value">
+          <span id="hook-question-mark">?</span><span id="hook-question-unit">回</span>
+        </div>
+        <div id="hook-question-note">毎日の記録から数えます</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      // 録音に合わせて動かす時刻(秒、この場面の頭から)
+      const CUES = { release: 3.18, mods: 5.2, fix: 8.39, question: 11.33, system: 17.1, surge: 4.18 };
+      const D = window.MI.data;
+      const tl = gsap.timeline({ paused: true });
+
+      // グラフ: 9/15 から最新日まで。10/28 より前の棒は最初から見せておく(最初のフレームを空にしない)
+      const svg = document.getElementById("hook-svg");
+      const chart = window.MI.drawDaily(svg, {
+        width: 1648,
+        height: 560,
+        from: "2026-09-15",
+        to: D.daily[D.daily.length - 1].date,
+      });
+      const release = chart.events.find((e) => e.kind === "game_major");
+      const after = chart.bars.filter((b) => b.dataset.date >= release.date);
+      chart.events.forEach((e) => {
+        if (e !== release) e.g.style.opacity = 0;
+      });
+      const label = window.MI.el(
+        "text",
+        { x: release.x - 16, y: 40, "text-anchor": "end", class: "hook-event-label" },
+        release.g,
+      );
+      label.textContent = "SULFUR 1.0";
+
+      gsap.set(after, { scaleY: 0, transformOrigin: "50% 100%" });
+      tl.fromTo("#hook-date", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 0.3);
+
+      // 1.0 の線が上から落ちる
+      tl.fromTo(
+        release.line,
+        { attr: { y2: release.line.getAttribute("y1") } },
+        { attr: { y2: release.line.getAttribute("y2") }, duration: 0.5, ease: "power3.in" },
+        CUES.release,
+      );
+      tl.fromTo(label, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.release + 0.45);
+
+      // 1.0 のあとの増加とパッチの線
+      tl.to(after, { scaleY: 1, transformOrigin: "50% 100%", duration: 0.8, ease: "expo.out", stagger: 0.05 }, CUES.surge);
+      chart.events
+        .filter((e) => e !== release)
+        .forEach((e, i) => tl.fromTo(e.g, { opacity: 0 }, { opacity: 1, duration: 0.2 }, CUES.surge + 0.4 + i * 0.12));
+
+      // グラフが退き、25 個の mod の名前が並ぶ
+      tl.to("#hook-chart", { opacity: 0, y: -40, filter: "blur(8px)", duration: 0.3, ease: "power3.in" }, CUES.mods - 0.3);
+      tl.to("#hook-date", { opacity: 0, duration: 0.2 }, CUES.mods - 0.3);
+
+      const grid = document.getElementById("hook-grid");
+      const names = [...D.case10.allModNames].sort((a, b) => a.name.localeCompare(b.name));
+      const rows = names.map((m) => {
+        const div = document.createElement("div");
+        div.className = "hook-mod";
+        div.textContent = m.name.replace(/_/g, " ");
+        div.dataset.fix = m.needsFix ? "1" : "0";
+        grid.appendChild(div);
+        return div;
+      });
+      tl.fromTo(
+        "#hook-mods-head",
+        { opacity: 0, filter: "blur(8px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.2 },
+        CUES.mods,
+      );
+      tl.fromTo(rows, { opacity: 0 }, { opacity: 1, duration: 0.25, stagger: 0.03 }, CUES.mods + 0.1);
+      gsap.set("#hook-mods-count", { opacity: 0 });
+
+      // 修正が必要だった 6 個だけ橙になる
+      const fixed = rows.filter((r) => r.dataset.fix === "1");
+      tl.to(fixed, { color: "#eb6834", borderLeftColor: "#eb6834", fontWeight: 700, duration: 0.2, stagger: 0.12 }, CUES.fix);
+      tl.to("#hook-mods-count", { opacity: 1, duration: 0.2 }, CUES.fix + 0.2);
+
+      tl.to("#hook-mods", { opacity: 0, filter: "blur(8px)", duration: 0.25, ease: "power3.in" }, CUES.question - 0.3);
+
+      // 答えは場面 6 まで出さない
+      tl.fromTo(
+        "#hook-question-label",
+        { opacity: 0, filter: "blur(8px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.2 },
+        CUES.question,
+      );
+      tl.fromTo(
+        "#hook-question-value",
+        { opacity: 0, filter: "blur(12px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.3, ease: "expo.out" },
+        CUES.question + 0.5,
+      );
+
+      tl.fromTo(
+        "#hook-question-note",
+        { opacity: 0, filter: "blur(8px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.2 },
+        CUES.system,
+      );
+
+      window.__timelines["hook"] = tl;
+    })();
+  </script>
+</template>
