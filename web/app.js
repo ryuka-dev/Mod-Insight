@@ -586,8 +586,9 @@ async function loadFacts() {
   try {
     state.allOverview = await fetchJson("/overview");
   } catch (err) {
-    console.warn(`全体の合計の取得に失敗したため、ヘッダーの 1 行は表示しません(${err.message})`);
-    state.allOverview = null;
+    // 静的な写しで先に出していれば、それをそのまま残す(state.allOverview は書き換えない)。
+    // 写しも無ければ null のままなので、1 行は出ない
+    console.warn(`全体の合計の取得に失敗しました。ヘッダーの 1 行は、静的な写しがあればその値のままにします(${err.message})`);
   }
   renderFacts();
 }
@@ -630,6 +631,13 @@ async function loadEventImpacts() {
   if (platform !== state.platform) {
     return;
   }
+  applyEventImpacts(impacts);
+}
+
+// event-impacts の結果を state に入れて、「ゲーム更新への対応」を描く
+// (API の応答と、静的な写しの両方から使う)
+// 入力: impacts(event-impacts API の応答と同じ形の配列。配列でなければ 0 件として扱う)
+function applyEventImpacts(impacts) {
   state.eventImpacts = Array.isArray(impacts) ? impacts : [];
   el.eventImpactCard.hidden = state.eventImpacts.length === 0;
   if (state.eventImpacts.length === 0) {
@@ -642,6 +650,54 @@ async function loadEventImpacts() {
   }
   fillEventImpactSelect();
   renderEventImpact();
+}
+
+// 静的な写し(data/<name>.json)を読む。写しは scripts/build-web-snapshot.js がサイトの配置の直前に作る
+// 入力: name(拡張子なしのファイル名)
+// 出力: 中身(JSON を読んだ結果)。無い時・読めない時は null(手元で動かす時は無いのがふつう)
+async function fetchSnapshot(name) {
+  try {
+    // no-cache: ブラウザに残っている古い写しを、サーバーに確かめずに使わないようにする
+    const response = await fetch(`data/${name}.json`, { cache: "no-cache" });
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch (err) {
+    return null;
+  }
+}
+
+// 最初の画面(ヘッダーの 1 行と「ゲーム更新への対応」)を、API を待たずに静的な写しで描く
+//
+// なぜ要るか:
+//   Function App はしばらくアクセスが無いと止まり、次のアクセスで起動に数秒かかる。
+//   その間、最初の画面に何も出ないのを避けるため、サイトと一緒に置いてある写しを先に出す。
+// 写しは最初の数秒を埋めるだけ:
+//   このあと init が今までどおり API を呼び、届いた値で描き直す。
+//   API の値が先に入っていたら(API がすぐ返った時)、写しでは上書きしない。
+//   写しが無ければ何もしない(今までどおり API の値を待つ)。
+async function paintFromSnapshot() {
+  const platform = state.platform;
+  const [impacts, overview, costs] = await Promise.all([
+    fetchSnapshot(`event-impacts-${platform}`),
+    fetchSnapshot("overview"),
+    fetchSnapshot("costs"),
+  ]);
+
+  // 写しはこの時点のプラットフォームの分なので、待っている間に切り替わっていたら使わない
+  if (Array.isArray(impacts) && platform === state.platform && state.eventImpacts.length === 0) {
+    applyEventImpacts(impacts);
+  }
+
+  // ヘッダーの 1 行。費用の写しは 1 行に出す分にだけ使い、費用のカードは loadCosts が API の値で描く
+  if (overview && state.allOverview === null) {
+    state.allOverview = overview;
+  }
+  if (costs && state.costs === null) {
+    state.costs = costs;
+  }
+  renderFacts();
 }
 
 // mod を切り替える(セレクトボックスと一覧表の行クリックの両方から呼ばれる)
@@ -1767,6 +1823,16 @@ function rerenderAllCharts() {
 }
 
 async function init() {
+  // 最初の画面を、API を待たずに静的な写しで描き始める(待たずに先へ進む。失敗しても何もしないだけ)。
+  // 写しで出た「ゲーム更新への対応」の更新をすぐ選べるよう、その操作だけここで受け付けておく
+  el.eventImpactSelect.addEventListener("change", () => {
+    state.eventImpactId = Number(el.eventImpactSelect.value);
+    renderEventImpact();
+  });
+  paintFromSnapshot().catch((err) => {
+    console.warn(`静的な写しでの描画に失敗しました。API の値を待ちます(${err.message})`);
+  });
+
   // mod 一覧を取ってセレクトボックスに入れる
   try {
     state.mods = await fetchJson("/mods");
@@ -1798,11 +1864,6 @@ async function init() {
   // イベント登録
   el.modSelect.addEventListener("change", () => {
     selectMod(Number(el.modSelect.value));
-  });
-
-  el.eventImpactSelect.addEventListener("change", () => {
-    state.eventImpactId = Number(el.eventImpactSelect.value);
-    renderEventImpact();
   });
 
   for (const button of el.platformButtons) {

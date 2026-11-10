@@ -20,3 +20,6 @@ Thumbs.db
 # ログ
 *.log
 npm-debug.log*
+
+# ダッシュボードの最初の画面用の写し(scripts/build-web-snapshot.js が作る。配置のたびに作り直す)
+web/data/
