@@ -306,7 +306,17 @@ Log search alerts are billed by number of rules × time, whether they fire or no
 The three fetch-job alerts were therefore merged into one query (background in [docs/ops-log.md](docs/ops-log.md), chapter 2).
 The queries (KQL) for checking and the configuration details are in [docs/monitoring.md](docs/monitoring.md).
 
-Investigations of problems in production (symptoms, steps, root cause, decision) are recorded in [docs/ops-log.md](docs/ops-log.md).
+**Problems in production and what was done**
+
+| Date | What happened | Cause | Fix | Result |
+|---|---|---|---|---|
+| 2026-09-16 | [The first access of the day took about 50 seconds](docs/ops-log.md#1-その日はじめてのアクセスに約-50-秒かかる2026-09-16) | The free-tier Azure SQL Database pauses itself after a period without use and takes about a minute to resume on the next connection | Right after the fetch job saves the data, it writes the API responses to Blob Storage, and the API returns those | The first access went from 47.7–52.9 s to 0.34 s. The database now runs only during the once-a-day fetch |
+| 2026-09-24 | [Most of the cost went to monitoring alerts](docs/ops-log.md#2-費用のほとんどが監視ログ検索アラートだった2026-09-24) | Log search alerts are billed by number of rules and time even when they never fire (about 2.5 yen per rule per day), and there were three | The three conditions were merged into one query. What is monitored did not change | Azure Monitor went from 7.07–7.71 yen a day to 2.46 yen (about 225 yen a month down to about 75) |
+| 2026-09-24 | [No notification email had arrived for 9 days](docs/ops-log.md#28-通知メールが一度も届いていなかった2026-09-24-発覚09-27-解決) | The recipient address had never been verified, so nothing was sent. The Azure portal showed the action as executed | Replaced the recipient, completed the verification, fired an alert on purpose and checked the inbox | Receipt confirmed on 2026-09-27. Notifications are now checked on the receiving side, not by the sender's records |
+| 2026-10-20 | [One failed save, and alerts that arrived while fetching was working](docs/ops-log.md#3-1-件の保存失敗と取得が動いているのに届いた通知2026-10-20) | The connection library's default retries (3 times, 0.5 s apart) were too short for the error a resuming database returns. The check for whether the fetch ran also depended on steps that come after the fetch | Retries are now 6 times, 10 s apart (about a minute). The check uses the fetch job's end-of-run log. Runs where a mod failed to save are left out of the total trend | A paused database was reached in 51.8 s after waiting for it to resume. Under the conditions of the day a false alert arrived, the new check does not fire |
+
+One cause is still unidentified: on some days the logs stop during the step that fetches operating costs ([#33](https://github.com/ryuka-dev/Mod-Insight/issues/33)).
+The investigation steps and measurements are in [docs/ops-log.md](docs/ops-log.md) (in Japanese). The same list is shown under 運用状況 on the dashboard.
 
 ## 8. Directory layout
 

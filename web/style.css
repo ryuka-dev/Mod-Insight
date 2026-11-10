@@ -463,3 +463,50 @@ td.empty {
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* ---------- 本番で起きた問題と対応 ---------- */
+/* 1 件ごとに、見出し(日付と起きたこと)、原因、対策、結果、運用記録へのリンクを縦に並べる */
+.incident-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.incident-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--grid);
+}
+
+.incident-list li:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.incident-list p {
+  margin: 2px 0;
+}
+
+.incident-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.incident-date {
+  margin-right: 8px;
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「原因」「対策」「結果」の見出し。幅をそろえて、本文の開始位置を合わせる */
+.incident-label {
+  display: inline-block;
+  min-width: 2.5em;
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+
+.incident-list a {
+  color: var(--series-1);
+}
