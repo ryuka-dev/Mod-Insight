@@ -123,8 +123,15 @@ const el = {
   eventImpactCard: document.getElementById("eventImpactCard"),
   eventImpactSelect: document.getElementById("eventImpactSelect"),
   eventImpactSummary: document.getElementById("eventImpactSummary"),
+  eventImpactBasisNote: document.getElementById("eventImpactBasisNote"),
+  eventImpactMainTitle: document.getElementById("eventImpactMainTitle"),
+  eventImpactEmptyNote: document.getElementById("eventImpactEmptyNote"),
+  eventImpactMainWrap: document.getElementById("eventImpactMainWrap"),
   eventImpactFixHead: document.getElementById("eventImpactFixHead"),
   eventImpactTableBody: document.querySelector("#eventImpactTable tbody"),
+  eventImpactOtherDetails: document.getElementById("eventImpactOtherDetails"),
+  eventImpactOtherSummary: document.getElementById("eventImpactOtherSummary"),
+  eventImpactOtherTableBody: document.querySelector("#eventImpactOtherTable tbody"),
   // 選択中 mod の詳細
   detailTitle: document.getElementById("detailTitle"),
   statDownloads: document.getElementById("statDownloads"),
@@ -769,9 +776,9 @@ function renderOverviewTable() {
   highlightSelectedModRows();
 }
 
-// 一覧表と「ゲーム更新への対応」の表の中で、いま詳細に表示している mod の行に印を付ける
+// 一覧表と「ゲーム更新への対応」の 2 つの表の中で、いま詳細に表示している mod の行に印を付ける
 function highlightSelectedModRows() {
-  for (const tbody of [el.overviewTableBody, el.eventImpactTableBody]) {
+  for (const tbody of [el.overviewTableBody, el.eventImpactTableBody, el.eventImpactOtherTableBody]) {
     for (const tr of tbody.querySelectorAll("tr")) {
       tr.classList.toggle("is-selected", tr.dataset.modId === String(state.modId));
     }
@@ -987,14 +994,17 @@ function fillEventImpactSelect() {
   el.eventImpactSelect.value = String(state.eventImpactId);
 }
 
-// 合計の 1 項目(「見出し: 値」)を作る。値だけ太字にする
-function makeSummaryItem(label, value) {
-  const li = document.createElement("li");
-  li.appendChild(document.createTextNode(`${label}: `));
-  const strong = document.createElement("strong");
-  strong.textContent = value;
-  li.appendChild(strong);
-  return li;
+// 合計の数字のタイルを 1 つ作る(見出し、大きな数字、補足の 3 行。ほかのカードのタイルと同じ見た目)
+function makeStatTile(label, value, sub) {
+  const tile = document.createElement("div");
+  tile.className = "stat-tile";
+  for (const [className, text] of [["stat-label", label], ["stat-value", value], ["stat-sub", sub]]) {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    tile.appendChild(span);
+  }
+  return tile;
 }
 
 // 新しい版の最初の 2 日。翌日の記録がまだ無ければ "31(1 日)" のように足した日数を添える
@@ -1026,66 +1036,107 @@ function makeNeedsFixCell(needsFix) {
   return makeCell(needsFix === false ? "不要" : "未確認", "needs-fix-none");
 }
 
-// 選択中の更新の合計と、mod ごとの表を描く
+// 「ゲーム更新への対応」の表の 1 行を作る
+// 入力: row(API の mods の 1 件)、withFixCell(「修正」の列を入れるか)
+// 出力: tr 要素(クリックすると下の詳細がその mod に切り替わる)
+function makeEventImpactRow(row, withFixCell) {
+  const tr = document.createElement("tr");
+  tr.dataset.modId = String(row.mod_id);
+  tr.appendChild(makeCell(row.name));
+  if (withFixCell) {
+    tr.appendChild(makeNeedsFixCell(row.needs_fix));
+  }
+  tr.appendChild(makeCell(`v${row.version_at_event}`));
+  if (row.next_version === null) {
+    tr.appendChild(makeCell("なし", "not-released"));
+    tr.appendChild(makeCell("–"));
+    tr.appendChild(makeCell("–", "num"));
+  } else {
+    tr.appendChild(makeCell(`v${row.next_version}`));
+    tr.appendChild(makeCell(formatDate(`${row.next_first_day}T00:00:00Z`)));
+    tr.appendChild(makeCell(`${row.days_to_next} 日`, "num"));
+  }
+  // 旧版のダウンロードには、足した日数を添える(前日の記録が無い日は足していない)
+  tr.appendChild(makeCell(`${formatNumber(row.old_downloads)}(${row.old_days} 日)`, "num"));
+  tr.appendChild(makeCell(formatFirstTwoDays(row), "num"));
+  tr.appendChild(makeCell(formatDaysTo90(row), "num"));
+  tr.addEventListener("click", () => {
+    selectMod(row.mod_id);
+    // 詳細は表よりずっと下にあるので、切り替わったことが見えるようにそこまで動かす
+    el.detailTitle.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  return tr;
+}
+
+// 選択中の更新の合計(数字のタイル)と、mod ごとの表を描く
+//
+// 修正が必要だったかの記録がある更新(basis = "needs_fix")では、合計は修正が必要だった mod だけで出ている。
+// 表もそれに合わせて 2 つに分ける:
+//   上の表       修正が必要だった mod と、未確認の mod(未確認の mod がある時だけ「修正」の列を出して区別する)
+//   折りたたみ   修正が不要だった mod。更新後に新しい版を出していても、この更新への修正ではない
+// 記録が無い更新(basis = "all")では、すべての mod を上の表に出し、合計もすべての mod で出す
 function renderEventImpact() {
   const impact = selectedEventImpact();
   clearTable(el.eventImpactSummary);
   clearTable(el.eventImpactTableBody);
+  clearTable(el.eventImpactOtherTableBody);
   if (impact === null) {
     return;
   }
 
-  // 修正が必要だったかの記録がある更新(basis = "needs_fix")では、合計は修正が必要だった mod だけで出ている。
-  // 記録が無い更新は「修正」の列を出さず、合計も今までどおり全部の mod で出す
   const summary = impact.summary;
   const byNeedsFix = summary.basis === "needs_fix";
-  el.eventImpactFixHead.hidden = !byNeedsFix;
-  if (byNeedsFix) {
-    el.eventImpactSummary.appendChild(makeSummaryItem("修正が必要だった mod",
-      `${formatNumber(summary.needs_fix_count)} 本(確認した ${formatNumber(summary.checked_count)} 本中)`));
-    el.eventImpactSummary.appendChild(makeSummaryItem("そのうち新しい版を出した mod",
-      `${formatNumber(summary.next_count)} 本`));
-  } else {
-    el.eventImpactSummary.appendChild(makeSummaryItem("更新後に新しい版を出した mod",
-      `${formatNumber(summary.next_count)} 本(全 ${formatNumber(summary.mod_count)} 本中)`));
-  }
-  el.eventImpactSummary.appendChild(makeSummaryItem("新しい版までの日数(中央値)",
-    summary.median_days_to_next === null ? "–" : `${formatNumber(summary.median_days_to_next)} 日`));
-  el.eventImpactSummary.appendChild(makeSummaryItem(
-    byNeedsFix
-      ? "その間の旧版のダウンロード(修正が必要だった mod の合計、多めの見積もり)"
-      : "その間の旧版のダウンロード(合計、多めの見積もり)",
-    formatNumber(summary.old_downloads_total)));
+  const median = summary.median_days_to_next === null ? "–" : `${formatNumber(summary.median_days_to_next)} 日`;
 
-  // 行の並びは API のまま(新しい版を出した mod が日数の短い順に先、出していない mod は旧版のダウンロードの多い順に後。
-  // 記録がある更新では、その並びのまま修正が必要 → 不要 → 未確認の順にまとめてある)
-  for (const row of impact.mods) {
-    const tr = document.createElement("tr");
-    tr.dataset.modId = String(row.mod_id);
-    tr.appendChild(makeCell(row.name));
-    if (byNeedsFix) {
-      tr.appendChild(makeNeedsFixCell(row.needs_fix));
+  // 合計の数字
+  if (byNeedsFix) {
+    el.eventImpactSummary.appendChild(makeStatTile("修正が必要だった mod",
+      `${formatNumber(summary.needs_fix_count)} 本`, `確認した ${formatNumber(summary.checked_count)} 本中`));
+    el.eventImpactSummary.appendChild(makeStatTile("そのうち次の版を出した mod",
+      `${formatNumber(summary.next_count)} 本`, `修正が必要だった ${formatNumber(summary.needs_fix_count)} 本のうち`));
+    el.eventImpactSummary.appendChild(makeStatTile("次の版までの日数(中央値)",
+      median, "更新日から、次の版が記録された日まで"));
+    el.eventImpactSummary.appendChild(makeStatTile("その間の旧版のダウンロード",
+      formatNumber(summary.old_downloads_total), "修正が必要だった mod の合計。多めの見積もり"));
+  } else {
+    el.eventImpactSummary.appendChild(makeStatTile("更新後に次の版を出した mod",
+      `${formatNumber(summary.next_count)} 本`, `全 ${formatNumber(summary.mod_count)} 本中`));
+    el.eventImpactSummary.appendChild(makeStatTile("次の版までの日数(中央値)",
+      median, "更新日から、次の版が記録された日まで"));
+    el.eventImpactSummary.appendChild(makeStatTile("その間の旧版のダウンロード",
+      formatNumber(summary.old_downloads_total), "すべての mod の合計。多めの見積もり"));
+  }
+  el.eventImpactBasisNote.hidden = byNeedsFix;
+
+  // 行の並びは API のまま(次の版を出した mod が日数の短い順に先、出していない mod は旧版のダウンロードの多い順に後)
+  const mainRows = byNeedsFix ? impact.mods.filter((row) => row.needs_fix !== false) : impact.mods;
+  const otherRows = byNeedsFix ? impact.mods.filter((row) => row.needs_fix === false) : [];
+
+  // 上の表。未確認の mod が混ざる時だけ、見出しにそう書き、「修正」の列(必要 / 未確認)を出す。
+  // 修正が必要だった mod だけの時は、全部の行が「必要」なので列は要らない
+  const hasUnchecked = byNeedsFix && mainRows.some((row) => row.needs_fix !== true);
+  if (!byNeedsFix) {
+    el.eventImpactMainTitle.textContent = "更新の時点で公開していた mod";
+  } else {
+    el.eventImpactMainTitle.textContent = hasUnchecked ? "修正が必要だった mod と、未確認の mod" : "修正が必要だった mod";
+  }
+  el.eventImpactFixHead.hidden = !hasUnchecked;
+  for (const row of mainRows) {
+    el.eventImpactTableBody.appendChild(makeEventImpactRow(row, hasUnchecked));
+  }
+  // 確認したすべての mod で修正が不要だった更新では、空の表の代わりに一言出す
+  el.eventImpactMainWrap.hidden = mainRows.length === 0;
+  el.eventImpactEmptyNote.hidden = mainRows.length > 0;
+
+  // 折りたたみの中の表(修正が不要だった mod)。そのうち何本が更新後に次の版を出したかを見出しに添える
+  el.eventImpactOtherDetails.hidden = otherRows.length === 0;
+  if (otherRows.length > 0) {
+    const released = otherRows.filter((row) => row.next_version !== null).length;
+    el.eventImpactOtherSummary.textContent =
+      `修正が不要だった mod(${formatNumber(otherRows.length)} 本。うち ${formatNumber(released)} 本は更新後に次の版を公開)`;
+    for (const row of otherRows) {
+      el.eventImpactOtherTableBody.appendChild(makeEventImpactRow(row, false));
     }
-    tr.appendChild(makeCell(`v${row.version_at_event}`));
-    if (row.next_version === null) {
-      tr.appendChild(makeCell("なし", "not-released"));
-      tr.appendChild(makeCell("–"));
-      tr.appendChild(makeCell("–", "num"));
-    } else {
-      tr.appendChild(makeCell(`v${row.next_version}`));
-      tr.appendChild(makeCell(formatDate(`${row.next_first_day}T00:00:00Z`)));
-      tr.appendChild(makeCell(`${row.days_to_next} 日`, "num"));
-    }
-    // 旧版のダウンロードには、足した日数を添える(前日の記録が無い日は足していない)
-    tr.appendChild(makeCell(`${formatNumber(row.old_downloads)}(${row.old_days} 日)`, "num"));
-    tr.appendChild(makeCell(formatFirstTwoDays(row), "num"));
-    tr.appendChild(makeCell(formatDaysTo90(row), "num"));
-    tr.addEventListener("click", () => {
-      selectMod(row.mod_id);
-      // 詳細は表よりずっと下にあるので、切り替わったことが見えるようにそこまで動かす
-      el.detailTitle.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    el.eventImpactTableBody.appendChild(tr);
   }
   highlightSelectedModRows();
 }

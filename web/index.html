@@ -52,8 +52,15 @@
         <span class="filter-label">ゲームの更新</span>
         <select id="eventImpactSelect"></select>
       </label>
-      <ul id="eventImpactSummary" class="event-impact-summary"></ul>
-      <div class="table-scroll">
+      <!-- 合計の数字(app.js がタイルを入れる) -->
+      <div id="eventImpactSummary" class="overview-tiles"></div>
+      <!-- 修正が必要だったかの記録が無い更新でだけ出す -->
+      <p id="eventImpactBasisNote" class="card-note" hidden>この更新は、修正が必要だったかをまだ記録していないため、すべての mod を合計しています。</p>
+
+      <!-- 記録がある更新では、修正が必要だった mod と未確認の mod だけ。記録が無い更新では、すべての mod -->
+      <h3 class="event-title" id="eventImpactMainTitle">修正が必要だった mod</h3>
+      <p id="eventImpactEmptyNote" class="card-note" hidden>この更新では、確認したすべての mod で修正が不要でした。</p>
+      <div class="table-scroll" id="eventImpactMainWrap">
         <table id="eventImpactTable">
           <thead>
             <tr>
@@ -71,6 +78,29 @@
           <tbody></tbody>
         </table>
       </div>
+
+      <!-- 修正が不要だった mod(記録がある更新でだけ出す。合計には入れていないので、折りたたんでおく) -->
+      <details class="table-details" id="eventImpactOtherDetails" hidden>
+        <summary id="eventImpactOtherSummary">修正が不要だった mod</summary>
+        <p class="card-note">ゲームが更新されても、そのまま動いた mod です。修正は不要でしたが、更新後に新しい版を出した mod もあります(「次の版」がある行)。上の合計には入れていません。</p>
+        <div class="table-scroll">
+          <table id="eventImpactOtherTable">
+            <thead>
+              <tr>
+                <th>Mod</th>
+                <th>更新時の版</th>
+                <th>次の版</th>
+                <th>記録日</th>
+                <th class="num">日数</th>
+                <th class="num">旧版 DL</th>
+                <th class="num">最初の 2 日</th>
+                <th class="num">90% まで</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
 
       <details class="table-details">
         <summary>この表の読み方</summary>
