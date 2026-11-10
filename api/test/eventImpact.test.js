@@ -8,6 +8,8 @@
 //   - 新しい版を出していない mod も行に出て、旧版のダウンロードは記録の最後の日まで数えること
 //   - 前日の記録が無い日は旧版のダウンロードに足さず、日数にも数えないこと
 //   - 更新日に初めて現れた版は 0 日で出したことになること
+//   - ただし公開日時が更新の時刻より前の版は、更新日に現れても旧版として扱うこと
+//     (本番の数字: ArmsRace 1.0.4 とパッチ 1.0.6。公開日時が分からない版は今までどおり)
 //   - 新しい版の割合が 90% に届かなければ days_to_90pct が null になること
 //   - 対象外の出来事・記録を始める前の更新・非推奨の mod を外すこと
 //   - platform で絞ってから合計(summary)を出すこと
@@ -243,6 +245,125 @@ describe("buildEventImpacts(境目)", () => {
     const actual = buildEventImpacts(dated);
     assert.deepEqual(actual[0].mods, expected[0].mods);
     assert.equal(actual[0].day, expected[0].day);
+  });
+});
+
+// ---- 更新と同じ日に現れた版(公開日時で前後を決める) ----
+// GET /api/mods/17/version-snapshots(ArmsRace、Thunderstore)の 11/07〜11/09 の定時取得の値。
+// 1.0.4 の公開は 2026-11-09T01:17Z(日本時間 10:17)、パッチ 1.0.6 のお知らせは同じ日の 10:52Z(日本時間 19:52)。
+// どちらも日本時間 11/09 なので、記録に現れた日だけでは前後が決まらない
+const ARMS_RACE = { mod_id: 17, name: "ArmsRace", platform: "thunderstore", is_deprecated: false };
+const ARMS_RACE_ROWS = [
+  ...capture("2026-11-07", { "1.0.0": 91, "1.0.1": 85, "1.0.2": 485, "1.0.3": 61 }),
+  ...capture("2026-11-08", { "1.0.0": 91, "1.0.1": 85, "1.0.2": 485, "1.0.3": 70 }),
+  ...capture("2026-11-09", { "1.0.0": 91, "1.0.1": 86, "1.0.2": 486, "1.0.3": 72, "1.0.4": 6 }),
+];
+// db.listModVersions と同じ並び(新しい順)。公開日時は Thunderstore の値
+const ARMS_RACE_VERSIONS = [
+  { version_number: "1.0.4", released_at: "2026-11-09T01:17:53.299Z" },
+  { version_number: "1.0.3", released_at: "2026-11-02T14:56:44.400Z" },
+];
+const PATCH_1_0_6 = { event_id: 53, occurred_at: "2026-11-09T10:52:08.000Z", kind: "game_patch", title: "Patch Notes 1.0.6", url: null, source: "steam", mod_id: null };
+
+// mod 12(更新日の 9/03 に 1.0 が現れる。更新は 9/03T01:00Z)に、1.0 の公開日時を付けて計算する
+function sameDayRow(releasedAt) {
+  const input = syntheticInput();
+  input.versionsByMod = new Map([[12, [{ version_number: "1.0", released_at: releasedAt }]]]);
+  const [event] = buildEventImpacts(input);
+  return event.mods.find((r) => r.mod_id === 12);
+}
+
+describe("buildEventImpacts(更新と同じ日に現れた版)", () => {
+  test("本番の数字: 更新の 9 時間半前に公開した ArmsRace 1.0.4 は旧版で、更新後に出した版は無い", () => {
+    const [event] = buildEventImpacts({
+      mods: [ARMS_RACE],
+      versionSnapshotsByMod: new Map([[17, ARMS_RACE_ROWS]]),
+      events: [PATCH_1_0_6],
+      versionsByMod: new Map([[17, ARMS_RACE_VERSIONS]]),
+    });
+    const [row] = event.mods;
+    assert.equal(event.day, "2026-11-09");
+    assert.equal(row.version_at_event, "1.0.4");
+    assert.equal(row.next_version, null);
+    assert.equal(row.days_to_next, null);
+    // 11/09 の増加: 1.0.1 +1、1.0.2 +1、1.0.3 +2、1.0.4 +6(前日に無いので 0 から)
+    assert.equal(row.old_downloads, 10);
+    assert.equal(row.old_days, 1);
+  });
+
+  test("本番の数字: 公開日時を渡さなければ、同じ 1.0.4 が 0 日で出た版になる(記録だけでは前後が決まらない)", () => {
+    const [event] = buildEventImpacts({
+      mods: [ARMS_RACE],
+      versionSnapshotsByMod: new Map([[17, ARMS_RACE_ROWS]]),
+      events: [PATCH_1_0_6],
+    });
+    const [row] = event.mods;
+    assert.deepEqual(
+      [row.version_at_event, row.next_version, row.days_to_next, row.old_downloads],
+      ["1.0.3", "1.0.4", 0, 4],
+    );
+  });
+
+  test("更新の時刻より前に公開した版は旧版。旧版のダウンロードは記録の最後の日まで数える", () => {
+    const row = sameDayRow("2026-09-02T20:00:00.000Z");  // 日本時間 9/03 5:00(更新は 10:00)
+    assert.equal(row.version_at_event, "1.0");
+    assert.equal(row.next_version, null);
+    assert.equal(row.next_first_day, null);
+    assert.equal(row.days_to_next, null);
+    // 9/03 は 0.9 +2 と 1.0 +20、9/04 は 0.9 +1 と 1.0 +20
+    assert.equal(row.old_downloads, 43);
+    assert.equal(row.old_days, 2);
+  });
+
+  test("更新の時刻より後に公開した版は、今までどおり 0 日で出した版", () => {
+    const row = sameDayRow("2026-09-03T05:00:00.000Z");  // 日本時間 9/03 14:00
+    assert.deepEqual(
+      [row.version_at_event, row.next_version, row.days_to_next, row.old_downloads],
+      ["0.9", "1.0", 0, 2],
+    );
+  });
+
+  test("更新と同じ時刻に公開した版は更新後に数える", () => {
+    const row = sameDayRow("2026-09-03T01:00:00.000Z");
+    assert.equal(row.next_version, "1.0");
+  });
+
+  test("公開日時が分からない版(null)は、記録に現れた日だけで決める", () => {
+    const row = sameDayRow(null);
+    assert.deepEqual(
+      [row.version_at_event, row.next_version, row.days_to_next, row.old_downloads],
+      ["0.9", "1.0", 0, 2],
+    );
+  });
+
+  test("DB から来る Date 型の released_at でも同じ結果になる", () => {
+    assert.deepEqual(sameDayRow(new Date("2026-09-02T20:00:00.000Z")), sameDayRow("2026-09-02T20:00:00.000Z"));
+  });
+
+  test("同じ日に、更新の前に出した版と後に出した版が両方現れた時は、前の版が旧版、後の版が次の版", () => {
+    const rows = [
+      ...capture("2026-09-01", { "1.0": 100 }),
+      ...capture("2026-09-02", { "1.0": 105 }),
+      ...capture("2026-09-03", { "1.0": 106, "1.1": 8, "1.2": 30 }),
+      ...capture("2026-09-04", { "1.0": 106, "1.1": 9, "1.2": 70 }),
+    ];
+    const [event] = buildEventImpacts({
+      mods: [{ mod_id: 30, name: "TwoSameDay", platform: "thunderstore", is_deprecated: false }],
+      versionSnapshotsByMod: new Map([[30, rows]]),
+      events: [{ event_id: 300, occurred_at: "2026-09-03T01:00:00.000Z", kind: "game_patch", title: "Patch", url: null, source: "steam", mod_id: null }],
+      versionsByMod: new Map([[30, [
+        { version_number: "1.2", released_at: "2026-09-03T06:00:00.000Z" },
+        { version_number: "1.1", released_at: "2026-09-02T18:00:00.000Z" },
+        { version_number: "1.0", released_at: null },
+      ]]]),
+    });
+    const [row] = event.mods;
+    assert.equal(row.version_at_event, "1.1");
+    assert.equal(row.next_version, "1.2");
+    assert.equal(row.days_to_next, 0);
+    assert.equal(row.old_downloads, 1 + 8);  // 9/03 の 1.0 と 1.1
+    assert.equal(row.next_first_2_days, 30 + 40);
+    assert.equal(row.days_to_90pct, 1);  // 9/03 は 30 / 39 = 77%、9/04 は 40 / 41 = 98%
   });
 });
 
