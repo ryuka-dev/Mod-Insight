@@ -4,14 +4,27 @@
 # フロントエンド(web/ ディレクトリ)を Azure Static Web Apps に自動配置する。
 #
 # 動くタイミング:
-#   - main ブランチに push されたとき(web/ 配下かこのファイル自体が変わった場合だけ)
+#   - main ブランチに push されたとき(web/ 配下、写しを作るスクリプト、このファイル自体が変わった場合だけ)
+#   - 毎日 15:20 UTC(日本時間 0:20)。定時の取得(15:00 UTC)のあとに、最初の画面用の写しを作り直すため
 #   - GitHub の Actions 画面から手動実行したとき(workflow_dispatch)
 #
 # 仕組み:
-#   Azure 側で発行した「デプロイトークン」を GitHub のリポジトリ Secrets に
-#   AZURE_STATIC_WEB_APPS_API_TOKEN という名前で登録してあり、
-#   公式アクション static-web-apps-deploy がそれを使って web/ の中身をアップロードする。
-#   web/ はビルド不要の静的ファイルなので skip_app_build: true にしている。
+#   1. scripts/build-web-snapshot.js が、最初の画面に使う API の応答を web/data/ に写しとして書く。
+#      画面は写しを先に出し、その裏で API を呼んで描き直す(Function App の起動を待たずに最初の画面を出すため)。
+#      写しを作れなくても、画面は API の値で描くだけなので、配置は続ける。
+#   2. Azure 側で発行した「デプロイトークン」を GitHub のリポジトリ Secrets に
+#      AZURE_STATIC_WEB_APPS_API_TOKEN という名前で登録してあり、
+#      公式アクション static-web-apps-deploy がそれを使って web/ の中身(写しを含む)をアップロードする。
+#      web/ はビルド不要の静的ファイルなので skip_app_build: true にしている。
+#
+# 同時に 2 つ動かさない(concurrency):
+#   配置が重なると、Static Web Apps は先に始まったほうを取り消し、その実行は失敗になる
+#   (2026-11-10 に、6 秒差で 2 回 push した時に起きた)。
+#   後から来た実行は、前の実行が終わるのを待ってから動く。
+#
+# 定時実行が遅れた時:
+#   GitHub の定時実行は、混んでいると遅れることがある。その間は写しが前日のままになるが、
+#   画面は API の値で描き直すので、古い数字が出続けることは無い(最初の数秒だけ前日の値が見える)。
 #
 # バックエンド(api/)はこのワークフローでは配置しない(deploy-api.yml)。
 # ============================================================
@@ -23,8 +36,15 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - "scripts/build-web-snapshot.js"
       - ".github/workflows/deploy-web.yml"
+  schedule:
+    - cron: "20 15 * * *"
   workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -32,6 +52,14 @@ jobs:
     steps:
       - name: リポジトリを取得
         uses: actions/checkout@v4
+
+      - name: Node.js を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 最初の画面用の写しを作る
+        run: node scripts/build-web-snapshot.js
 
       - name: Static Web Apps へ配置
         uses: Azure/static-web-apps-deploy@v1
