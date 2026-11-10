@@ -1091,7 +1091,7 @@ function formatFirstTwoDays(row) {
 }
 
 // 更新後に出した版(旧版以外)がその日のダウンロードの 90% を超えるまでの日数の表示
-// 0 = 次の版が初めて記録された日(記録日)のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
+// 0 = 次の版が初めて記録に現れた日のうちに超えた。新しい版はあるのに null なら、まだ(または 14 日以内に)超えていない
 function formatDaysTo90(row) {
   if (row.next_version === null) {
     return "–";
@@ -1127,7 +1127,8 @@ function makeEventImpactRow(row, withFixCell) {
     tr.appendChild(makeCell("–", "num"));
   } else {
     tr.appendChild(makeCell(`v${row.next_version}`));
-    tr.appendChild(makeCell(formatDate(`${row.next_first_day}T00:00:00Z`)));
+    // 公開した日(next_day)。この項目ができる前に作られたキャッシュには無いので、その間は初めて記録に現れた日を出す
+    tr.appendChild(makeCell(formatDate(`${row.next_day || row.next_first_day}T00:00:00Z`)));
     tr.appendChild(makeCell(`${row.days_to_next} 日`, "num"));
   }
   // 旧版のダウンロードには、足した日数を添える(前日の記録が無い日は足していない)
@@ -1169,14 +1170,14 @@ function renderEventImpact() {
     el.eventImpactSummary.appendChild(makeStatTile("そのうち次の版を出した mod",
       `${formatNumber(summary.next_count)} 本`, `修正が必要だった ${formatNumber(summary.needs_fix_count)} 本のうち`));
     el.eventImpactSummary.appendChild(makeStatTile("次の版までの日数(中央値)",
-      median, "更新日から、次の版が記録された日まで"));
+      median, "更新日から、次の版を公開した日まで"));
     el.eventImpactSummary.appendChild(makeStatTile("その間の旧版のダウンロード",
       formatNumber(summary.old_downloads_total), "修正が必要だった mod の合計。多めの見積もり"));
   } else {
     el.eventImpactSummary.appendChild(makeStatTile("更新後に次の版を出した mod",
       `${formatNumber(summary.next_count)} 本`, `全 ${formatNumber(summary.mod_count)} 本中`));
     el.eventImpactSummary.appendChild(makeStatTile("次の版までの日数(中央値)",
-      median, "更新日から、次の版が記録された日まで"));
+      median, "更新日から、次の版を公開した日まで"));
     el.eventImpactSummary.appendChild(makeStatTile("その間の旧版のダウンロード",
       formatNumber(summary.old_downloads_total), "すべての mod の合計。多めの見積もり"));
   }
