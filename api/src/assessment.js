@@ -14,7 +14,8 @@
 //               { "thunderstore": "GridWise", "nexus": null, "needs_fix": false } ] }
 //   thunderstore  Thunderstore のパッケージ名(必須)
 //   nexus         Nexus Mods の mod 番号(mod のページの URL の数字)。Nexus に無い mod は null か省略
-//   needs_fix     true = 修正が必要だった、false = 確認して修正は不要だった
+//   needs_fix     true = その更新の時点で修正が必要な状態だった(前の更新で必要になり、まだ直した版を出していない場合を含む)、
+//                 false = 確認して、必要な状態ではなかった。意味を決めた理由は sql/005
 //   sweep         どのゲームのビルドに対するチェックか(表示するだけ。省略可)
 //
 // mod の見つけ方(mods テーブルの platform + external_id。取得ジョブが入れる値と同じ):

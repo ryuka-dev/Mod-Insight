@@ -254,7 +254,7 @@ The table creation scripts are in `sql/`. Run each one once, in numbered order.
 | `version_snapshots` | One version's values at one fetch | `version_id`, `captured_at`, `download_count` |
 | `fetch_logs` | The result of one fetch job run for one site | `run_at`, `platform`, `status`, `records_fetched`, `error_message` |
 | `events` | One external event (a game announcement or a hand-written note) | `occurred_at`, `kind` (`game_major` / `game_patch` / `game_news` / `note`), `title`, `url`, unique on `source` + `external_id` (except hand-written notes) |
-| `event_mod_assessments` | Whether one mod needed a fix for one game update | Unique on `(event_id, mod_id)`, `needs_fix` (1 = needed, 0 = checked and not needed), `updated_at`. No row means unchecked. What broke is not recorded |
+| `event_mod_assessments` | Whether one mod needed a fix for one game update | Unique on `(event_id, mod_id)`, `needs_fix` (1 = the mod was in a state that needed a fix at the time of that update, including one still unfixed from an earlier update; 0 = checked and not in such a state), `updated_at`. No row means unchecked. What broke is not recorded |
 
 | Script | Contents |
 |---|---|

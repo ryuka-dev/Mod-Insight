@@ -15,6 +15,12 @@
 --   入れない: 何が壊れたかの詳細(公開しない。互換性チェックの作業記録は別の非公開リポジトリにある)
 --   行が無い組み合わせは「未確認」として扱う。
 --
+-- 「修正が必要だった」の意味:
+--   その更新の時点で、公開中の版に修正が必要な状態だったこと。
+--   前の更新で必要になり、まだ直した版を出していない mod も、次の更新では「必要」と記録する。
+--   「この更新で新しく必要になったか」にしないのは、続けて出た更新(1.0 / 1.0.1 / 1.0.2)を
+--   1 回のチェックでまとめて確かめることがあり、どの更新で必要になったかを分けられないため。
+--
 -- mod_id は配布サイトごとの mod(mods テーブルの 1 行)を指す。
 -- 同じ mod を Thunderstore と Nexus Mods の両方で公開している時は、取り込みスクリプトが両方の行を書く。
 --
@@ -26,7 +32,7 @@
 CREATE TABLE event_mod_assessments (
     event_id    INT       NOT NULL FOREIGN KEY REFERENCES events(event_id),
     mod_id      INT       NOT NULL FOREIGN KEY REFERENCES mods(mod_id),
-    needs_fix   BIT       NOT NULL,                     -- 1 = この更新で修正が必要だった、0 = 確認して修正は不要だった
+    needs_fix   BIT       NOT NULL,                     -- 1 = この更新の時点で修正が必要な状態だった、0 = 確認して、必要な状態ではなかった
     updated_at  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),  -- 最後に書いた日時(UTC)
     CONSTRAINT PK_event_mod_assessments PRIMARY KEY (event_id, mod_id)  -- 1 つの更新 × 1 つの mod に 1 行
 );

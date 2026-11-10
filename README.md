@@ -252,7 +252,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 | `version_snapshots` | ある取得時点のバージョン 1 つの値 | `version_id`、`captured_at`、`download_count` |
 | `fetch_logs` | 取得ジョブ 1 回 × 配布サイト 1 つの結果 | `run_at`、`platform`、`status`、`records_fetched`、`error_message` |
 | `events` | 外部の出来事 1 つ(ゲームのお知らせ、手入力のメモ) | `occurred_at`、`kind`(`game_major` / `game_patch` / `game_news` / `note`)、`title`、`url`、`source` + `external_id` で一意(手入力は除く) |
-| `event_mod_assessments` | ゲームの更新 1 つ × mod 1 件について、修正が必要だったか | `(event_id, mod_id)` で一意、`needs_fix`(1 = 必要、0 = 確認して不要)、`updated_at`。行が無ければ未確認。何が壊れたかは記録しない |
+| `event_mod_assessments` | ゲームの更新 1 つ × mod 1 件について、修正が必要だったか | `(event_id, mod_id)` で一意、`needs_fix`(1 = その更新の時点で修正が必要な状態だった。前の更新で必要になり、まだ直した版を出していない場合を含む。0 = 確認して、必要な状態ではなかった)、`updated_at`。行が無ければ未確認。何が壊れたかは記録しない |
 
 | スクリプト | 内容 |
 |---|---|
