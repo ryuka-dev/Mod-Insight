@@ -58,6 +58,7 @@ const state = {
   rangeDays: 30,         // 選択中の期間(日数)。null なら全期間
   rangeFrom: null,       // 選択中の期間の開始時刻(ミリ秒)。全期間なら null。loadMod / loadOverview が設定する
   overview: null,        // overview API の結果
+  allOverview: null,     // 絞り込みなし(全プラットフォーム・全期間)の overview API の結果。ヘッダーの 1 行用(取れなければ null)
   summary: null,         // summary API の結果
   snapshots: [],         // snapshots API の結果(古い順)
   versions: [],          // versions API の結果(新しい順)
@@ -102,6 +103,7 @@ const el = {
   platformButtons: document.querySelectorAll(".platform-buttons button"),
   rangeButtons: document.querySelectorAll(".range-buttons button"),
   errorBox: document.getElementById("errorBox"),
+  pageFacts: document.getElementById("pageFacts"),
   content: document.getElementById("content"),
   // 全 mod の一覧
   ovTotal: document.getElementById("ovTotal"),
@@ -568,12 +570,26 @@ async function loadCosts() {
     appendEmptyRow(el.costTableBody, 3, `取得できませんでした(${err.message})`);
     el.costAverageSub.textContent = "データがまだありません";
     el.costCanvas.parentElement.hidden = true;  // 空のグラフの枠だけが残らないように隠す
+    renderFacts();
     return;
   }
   el.costCanvas.parentElement.hidden = state.costs.days.length === 0;
   renderCostTiles();
   renderCostChart();
   renderCostTable();
+  renderFacts();  // ヘッダーの 1 行にも費用を出す
+}
+
+// ヘッダーの 1 行の材料(全プラットフォーム・全期間の合計。画面の選択に関係ないので起動時に 1 回だけ)
+// 失敗した時は 1 行を出さないだけで、ほかの表示は今までどおりにする(補足なので、エラーはコンソールにだけ残す)
+async function loadFacts() {
+  try {
+    state.allOverview = await fetchJson("/overview");
+  } catch (err) {
+    console.warn(`全体の合計の取得に失敗したため、ヘッダーの 1 行は表示しません(${err.message})`);
+    state.allOverview = null;
+  }
+  renderFacts();
 }
 
 // 外部の出来事(mod にも期間にも関係なく全件で数十件なので、起動時に 1 回だけ全部取る)
@@ -969,6 +985,64 @@ function renderEventList() {
 
     el.eventList.appendChild(li);
   }
+}
+
+// ============================================================
+// 描画: ヘッダーの 1 行(だれが、いつから、どの規模で動かしているか)
+// ============================================================
+
+// 費用の記録がそろっている最後の月("YYYY-MM")。記録が無ければ null
+// 入力: days(costs API の days = [{ date: "YYYY-MM-DD", total }, ...]、古い順)
+// 記録の最後の日がある月は、まだ月の途中か、日別の値が確定していない日が残っているので使わず、その前の月を返す
+function lastFullCostMonth(days) {
+  if (days.length === 0) {
+    return null;
+  }
+  const [year, month] = days[days.length - 1].date.split("-").map(Number);
+  // Date の月は 0 始まりなので、month - 2 が「前の月」(1 月なら前の年の 12 月になる)
+  return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7);
+}
+
+// ヘッダーの 1 行を作る。loadFacts と loadCosts のどちらが後に終わっても正しく出るよう、両方の最後で呼ぶ
+// 例: ひとりで開発し、2026 年 9 月から毎日動かしています。公開中の mod は Thunderstore 26 本・Nexus Mods 26 本、
+//     ダウンロードは合わせて 54,152 回、10 月の運用費用は約 95 円です。
+function renderFacts() {
+  const overview = state.allOverview;
+  if (!overview || overview.totals.length === 0) {
+    el.pageFacts.hidden = true;
+    return;
+  }
+
+  // いつから: 最初の取得の日(日本時間)の年と月
+  const [startYear, startMonth] = jstDateKey(overview.totals[0].captured_at).split("-").map(Number);
+
+  // 公開中の mod の数を配布サイトごとに("Thunderstore 26 本" の形。PLATFORM_LABELS の順)
+  const counts = [];
+  for (const platform of Object.keys(PLATFORM_LABELS)) {
+    const count = overview.mods.filter((mod) => mod.platform === platform).length;
+    if (count > 0) {
+      counts.push(`${PLATFORM_LABELS[platform].name} ${formatNumber(count)} 本`);
+    }
+  }
+
+  // 費用: 記録がそろっている最後の月の合計。費用が取れていない時や、その月の記録が無い時は省く
+  let costText = "";
+  const costMonth = state.costs ? lastFullCostMonth(state.costs.days) : null;
+  if (costMonth !== null) {
+    const monthDays = state.costs.days.filter((day) => day.date.startsWith(costMonth));
+    if (monthDays.length > 0) {
+      const total = monthDays.reduce((sum, day) => sum + day.total, 0);
+      const amount = state.costs.currency === "JPY"
+        ? `${formatNumber(Math.round(total))} 円`
+        : `${total.toFixed(2)} ${state.costs.currency}`;
+      costText = `、${Number(costMonth.slice(5))} 月の運用費用は約 ${amount}`;
+    }
+  }
+
+  el.pageFacts.textContent =
+    `ひとりで開発し、${startYear} 年 ${startMonth} 月から毎日動かしています。`
+    + `公開中の mod は ${counts.join("・")}、ダウンロードは合わせて ${formatNumber(overview.total_downloads)} 回${costText}です。`;
+  el.pageFacts.hidden = false;
 }
 
 // ============================================================
@@ -1760,6 +1834,7 @@ async function init() {
   loadCosts();
   loadEvents();
   loadEventImpacts();
+  loadFacts();
   if (requestedMod) {
     // URL で指定された mod は、一覧を待たずに同時に取りに行く
     state.modId = requestedMod.mod_id;
