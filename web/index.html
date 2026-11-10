@@ -16,7 +16,7 @@
       4. 全 mod の状況   合計の数字、合計の推移、mod ごとの一覧表(行クリックで 6 の mod が切り替わる)
       5. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均、期間内のゲームの出来事(グラフの縦線の説明)
       6. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別、公開の前後、バージョン履歴
-      7. 運用状況        運用費用と取得ジョブの実行記録(システム全体の記録なので、上のどの選択も効かない)
+      7. 運用状況        運用費用、取得ジョブの実行記録、本番で起きた問題と対応(システム全体の記録なので、上のどの選択も効かない)
     データはすべて app.js が API から取ってきて、この HTML の空の要素に流し込む。
   -->
 
@@ -325,6 +325,44 @@
           <tbody></tbody>
         </table>
       </div>
+    </section>
+
+    <!-- 本番で起きた問題と対応。調査記録(docs/ops-log.md)の要点を書き写したもので、API からは取っていない。
+         直す時は docs/ops-log.md と、README(日本語・英語)の 7 章の表も合わせる -->
+    <section class="card" aria-label="本番で起きた問題と対応">
+      <h2 class="card-title">本番で起きた問題と対応</h2>
+      <p class="card-note">動かし始めてから本番で起きた問題です。調べた手順と実測値は、それぞれのリンク先(GitHub にある運用記録)に残しています。</p>
+      <ul class="incident-list">
+        <li>
+          <p class="incident-title"><span class="incident-date">2026/09/16</span>その日はじめてのアクセスに約 50 秒かかる</p>
+          <p><span class="incident-label">原因</span>無料枠の Azure SQL Database は、使われない時間が続くと自動で一時停止し、次の接続で再開するのに約 1 分かかる。</p>
+          <p><span class="incident-label">対策</span>取得ジョブがデータを保存した直後に、API の応答を Blob Storage に作っておく。API はそれを返す。</p>
+          <p><span class="incident-label">結果</span>最初のアクセスが 47.7〜52.9 秒から 0.34 秒になった。データベースが動くのは、1 日 1 回の取得の時だけになった。</p>
+          <p><a href="https://github.com/ryuka-dev/Mod-Insight/blob/main/docs/ops-log.md#1-その日はじめてのアクセスに約-50-秒かかる2026-09-16" target="_blank" rel="noopener">運用記録 1 章</a></p>
+        </li>
+        <li>
+          <p class="incident-title"><span class="incident-date">2026/09/24</span>費用のほとんどが、監視のアラートにかかっていた</p>
+          <p><span class="incident-label">原因</span>ログ検索アラートは、発火しなくてもルールの本数と時間で料金がかかる(1 本で 1 日に約 2.5 円)。それが 3 本あった。</p>
+          <p><span class="incident-label">対策</span>3 本の条件を 1 本のクエリにまとめた。監視している内容は変えていない。</p>
+          <p><span class="incident-label">結果</span>Azure Monitor の費用が、1 日 7.07〜7.71 円から 2.46 円になった(月にすると約 225 円から約 75 円)。</p>
+          <p><a href="https://github.com/ryuka-dev/Mod-Insight/blob/main/docs/ops-log.md#2-費用のほとんどが監視ログ検索アラートだった2026-09-24" target="_blank" rel="noopener">運用記録 2 章</a></p>
+        </li>
+        <li>
+          <p class="incident-title"><span class="incident-date">2026/09/24</span>通知メールが 9 日間、1 通も届いていなかった</p>
+          <p><span class="incident-label">原因</span>通知先のメールアドレスの確認が済んでおらず、メールが送られていなかった。Azure の画面には「実行した」と出ていた。</p>
+          <p><span class="incident-label">対策</span>通知先を差し替えて確認を済ませ、アラートをわざと発火させて、受信箱でメールを確かめた。</p>
+          <p><span class="incident-label">結果</span>2026/09/27 に受信を確認した。通知の確認は、送った側の記録ではなく、受け取った側ですることにした。</p>
+          <p><a href="https://github.com/ryuka-dev/Mod-Insight/blob/main/docs/ops-log.md#28-通知メールが一度も届いていなかった2026-09-24-発覚09-27-解決" target="_blank" rel="noopener">運用記録 2.8 節</a></p>
+        </li>
+        <li>
+          <p class="incident-title"><span class="incident-date">2026/10/20</span>1 件の保存の失敗と、取得は動いているのに届いた通知</p>
+          <p><span class="incident-label">原因</span>再開中のデータベースが返すエラーを、接続ライブラリの既定の再試行(3 回、0.5 秒おき)では待ちきれなかった。「取得が動いたか」の判定も、取得のあとの処理に左右されていた。</p>
+          <p><span class="incident-label">対策</span>再試行を 6 回、10 秒おきにした(約 1 分待てる)。判定は取得ジョブの終了ログで行う。保存に失敗した mod がある回は、合計の推移に入れない。</p>
+          <p><span class="incident-label">結果</span>一時停止中のデータベースに、再開を待って 51.8 秒で接続できた。誤って通知が届いた日の条件で、新しい判定が発火しないことを確かめた。</p>
+          <p><span class="incident-label">残り</span>運用費用を取る段階でログが途切れる日があり、原因はまだ特定できていない(<a href="https://github.com/ryuka-dev/Mod-Insight/issues/33" target="_blank" rel="noopener">Issue #33</a>)。</p>
+          <p><a href="https://github.com/ryuka-dev/Mod-Insight/blob/main/docs/ops-log.md#3-1-件の保存失敗と取得が動いているのに届いた通知2026-10-20" target="_blank" rel="noopener">運用記録 3 章</a></p>
+        </li>
+      </ul>
     </section>
   </main>
 
