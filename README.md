@@ -205,6 +205,7 @@ flowchart LR
   Api -.キャッシュが無い時だけ.-> DB
   User --> Web
   Web --> Api
+  Api -.最初の画面用の写し<br/>配置時と毎日.-> Web
   Func -.実行記録・ログ.-> AI
 ```
 
@@ -226,6 +227,7 @@ GET API はまず Blob Storage のキャッシュを返し、キャッシュが�
 - キャッシュは `{ run_at, generated_at, data }` の形で、`run_at`(取得ジョブの実行日時)が「どの回のデータか」を表します。応答ヘッダー `x-data-source`(`cache` / `db`)と `x-data-run-at` でどちらの経路で返したかが分かります
 - 期間(`from` / `to`)や配布サイト(`platform`)の絞り込みは、全期間のキャッシュを読んだ後に JS 側で行います。期間ごとに Blob を分けるより単純で、取得ジョブはフロントエンドがどの期間を使うかを知らなくてよいためです
 - キャッシュの書き込みに失敗しても取得ジョブの結果(`fetch_logs`)は変わらず、API は DB に戻るだけです
+- Function App も、しばらくアクセスが無いと止まり、次のアクセスで起動に数秒かかります。そこで、最初の画面(ヘッダーの 1 行と「ゲーム更新への対応」)に使う応答は、静的な JSON(写し)としてサイトと一緒に置いています。画面はまず写しで描き、その裏で API を呼んで、届いた値で描き直します(`scripts/build-web-snapshot.js`、`web/app.js` の `paintFromSnapshot`)。写しは最初の数秒を埋めるだけで、無い時や古い時も、API の値で描き直すので出る数字は変わりません
 
 配布サイトを増やすときは、共通の形を返すアダプターを 1 ファイル追加するだけで、保存処理と API は変更しません。
 
@@ -324,10 +326,10 @@ Mod-Insight/
     src/httpUtil.js            パラメータの解釈とエラー応答の形
   web/                         ダッシュボード(index.html / app.js / style.css / config.js)
   sql/                         建表スクリプト(番号順に実行)
-  scripts/                     単体で動かす補助スクリプト(API の確認、データの埋め戻し、互換性チェックの結果の取り込み)
+  scripts/                     単体で動かす補助スクリプト(API の確認、データの埋め戻し、互換性チェックの結果の取り込み、最初の画面用の写しの作成)
   docs/                        監視の説明、運用記録、README 用の画像
   api/test/                    ユニットテスト(node:test)
-  .github/workflows/           テスト実行、api/ の Azure Functions への配置、web/ の Static Web Apps への配置
+  .github/workflows/           テスト実行、api/ の Azure Functions への配置、web/ の Static Web Apps への配置(最初の画面用の写しもここで作る)
 ```
 
 ## 9. ローカルでの実行とデプロイ
@@ -413,7 +415,7 @@ npx http-server web -p 8080
 
 ### デプロイ
 
-- **フロントエンド**: `main` ブランチに `web/` の変更を push すると、GitHub Actions(`.github/workflows/deploy-web.yml`)が Static Web Apps に配置します。
+- **フロントエンド**: `main` ブランチに `web/` の変更を push した時と、毎日 15:20 UTC(日本時間 0:20、定時の取得のあと)に、GitHub Actions(`.github/workflows/deploy-web.yml`)が最初の画面用の写し(`web/data/`)を作ってから Static Web Apps に配置します。写しは Git には入れていません。
   リポジトリの Secrets に `AZURE_STATIC_WEB_APPS_API_TOKEN`(Static Web Apps のデプロイトークン)の登録が必要です。
 - **バックエンド**: `main` ブランチに `api/` の変更を push すると、GitHub Actions(`.github/workflows/deploy-api.yml`)が
   テスト → zip 作成 → Function App への配置 → `GET /api/overview` の動作確認 を行います。テストが失敗した場合は配置しません。

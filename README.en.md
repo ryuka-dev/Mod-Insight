@@ -207,6 +207,7 @@ flowchart LR
   Api -.only when no cache.-> DB
   User --> Web
   Web --> Api
+  Api -.first-screen snapshot<br/>on deploy and daily.-> Web
   Func -.runs and logs.-> AI
 ```
 
@@ -228,6 +229,7 @@ The data only changes once a day with the fetch job, so there is no reason to us
 - The cache has the shape `{ run_at, generated_at, data }`. `run_at` (when the fetch job ran) tells which run the data came from. The `x-data-source` (`cache` / `db`) and `x-data-run-at` response headers show which path served the response
 - Filtering by period (`from` / `to`) and site (`platform`) is done in JS after reading the all-time cache. This is simpler than a separate blob per period, and the fetch job does not need to know which periods the frontend uses
 - If writing the cache fails, the fetch job result (`fetch_logs`) does not change. The API simply falls back to the DB
+- The Function App also stops after a period without access, and the next access takes a few seconds to start it. So the responses used by the first screen (the one-line summary in the header and **Response to game updates**) are placed with the site as static JSON (a snapshot). The page draws from the snapshot first, calls the API in the background, and redraws with the values that arrive (`scripts/build-web-snapshot.js`, `paintFromSnapshot` in `web/app.js`). The snapshot only fills the first few seconds: when it is missing or old, the page still redraws from the API, so the numbers shown do not change
 
 Adding a site means adding one adapter file that returns the common shape. The saving code and the API stay the same.
 
@@ -326,10 +328,10 @@ Mod-Insight/
     src/httpUtil.js            Parameter parsing and error response shape
   web/                         Dashboard (index.html / app.js / style.css / config.js)
   sql/                         Table creation scripts (run in numbered order)
-  scripts/                     Standalone helper scripts (checking APIs, backfilling data, importing compatibility check results)
+  scripts/                     Standalone helper scripts (checking APIs, backfilling data, importing compatibility check results, building the first-screen snapshot)
   docs/                        Monitoring notes, operations log, images for the README
   api/test/                    Unit tests (node:test)
-  .github/workflows/           Running tests, deploying api/ to Azure Functions, deploying web/ to Static Web Apps
+  .github/workflows/           Running tests, deploying api/ to Azure Functions, deploying web/ to Static Web Apps (the first-screen snapshot is built here too)
 ```
 
 ## 9. Running locally and deploying
@@ -415,7 +417,7 @@ npx http-server web -p 8080
 
 ### Deploying
 
-- **Frontend**: Pushing changes under `web/` to the `main` branch makes GitHub Actions (`.github/workflows/deploy-web.yml`) deploy to Static Web Apps.
+- **Frontend**: When changes under `web/` are pushed to the `main` branch, and every day at 15:20 UTC (0:20 in Japan, after the scheduled fetch), GitHub Actions (`.github/workflows/deploy-web.yml`) builds the first-screen snapshot (`web/data/`) and then deploys to Static Web Apps. The snapshot is not kept in Git.
   `AZURE_STATIC_WEB_APPS_API_TOKEN` (the Static Web Apps deployment token) must be registered in the repository Secrets.
 - **Backend**: Pushing changes under `api/` to the `main` branch makes GitHub Actions (`.github/workflows/deploy-api.yml`)
   run tests → build the zip → deploy to the Function App → check `GET /api/overview`. If the tests fail, nothing is deployed.
