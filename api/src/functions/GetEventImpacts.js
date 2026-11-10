@@ -17,7 +17,7 @@
 // 応答: 200 [{ event_id, occurred_at, kind, title, url, day,
 //              summary: { mod_count, next_count, median_days_to_next, old_downloads_total,
 //                         basis, checked_count, needs_fix_count },
-//              mods: [{ mod_id, name, platform, needs_fix, version_at_event, next_version, next_first_day, days_to_next,
+//              mods: [{ mod_id, name, platform, needs_fix, version_at_event, next_version, next_first_day, next_day, days_to_next,
 //                       old_downloads, old_days, next_first_2_days, next_days_counted, days_to_90pct }, ...] }, ...]
 //           対象の更新が無ければ []
 //       400 { error }(platform が知らない値)
