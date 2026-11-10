@@ -87,9 +87,22 @@ body {
   font-weight: 600;
 }
 
+.page-header {
+  margin-bottom: 20px;
+}
+
 .subtitle {
-  margin: 0 0 20px;
+  margin: 0;
   color: var(--text-secondary);
+}
+
+/* だれが、いつから、どの規模で動かしているかの 1 行(数字が取れない時は表示されない) */
+.page-facts {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  /* 2 行になる時に、最後の数文字だけが次の行に落ちないよう、行の長さをそろえる */
+  text-wrap: balance;
 }
 
 /* ---------- フィルター行(1 行に横並び、狭ければ折り返す) ---------- */
