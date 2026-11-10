@@ -10,6 +10,8 @@
 //   - 更新日に初めて現れた版は 0 日で出したことになること
 //   - ただし公開日時が更新の時刻より前の版は、更新日に現れても旧版として扱うこと
 //     (本番の数字: ArmsRace 1.0.4 とパッチ 1.0.6。公開日時が分からない版は今までどおり)
+//   - 取得の直前に公開した版は、日数と旧版のダウンロードを、記録に現れた日ではなく公開した日まで数えること
+//     (本番の数字: The_Dragonblade 0.4.0 と 1.0。公開日時が分からない版は今までどおり)
 //   - 新しい版の割合が 90% に届かなければ days_to_90pct が null になること
 //   - 対象外の出来事・記録を始める前の更新・非推奨の mod を外すこと
 //   - platform で絞ってから合計(summary)を出すこと
@@ -110,6 +112,7 @@ describe("buildEventImpacts(本番の数字)", () => {
       version_at_event: "1.4.1",
       next_version: "1.5.0",
       next_first_day: "2026-11-01",
+      next_day: "2026-11-01",  // 公開日時を渡していないので、初めて現れた日と同じ
       days_to_next: 4,
       old_downloads: 279,
       old_days: 5,
@@ -364,6 +367,80 @@ describe("buildEventImpacts(更新と同じ日に現れた版)", () => {
     assert.equal(row.old_downloads, 1 + 8);  // 9/03 の 1.0 と 1.1
     assert.equal(row.next_first_2_days, 30 + 40);
     assert.equal(row.days_to_90pct, 1);  // 9/03 は 30 / 39 = 77%、9/04 は 40 / 41 = 98%
+  });
+});
+
+// ---- 取得の直前に公開した版(日数と旧版のダウンロードは、公開した日まで数える) ----
+// GET /api/mods/15/version-snapshots(The_Dragonblade、Thunderstore)の 10/27〜11/02 の定時取得の値。
+// 0.4.0 の公開は 2026-11-01T14:57Z(日本時間 11/01 23:57)。取得(日本時間 11/02 0:00)の 3 分前で、
+// その回の記録にはまだ現れず、次の日(11/02 の分)の記録で初めて現れた
+const DRAGONBLADE = { mod_id: 15, name: "The_Dragonblade", platform: "thunderstore", is_deprecated: false };
+const DRAGONBLADE_ROWS = [
+  ...capture("2026-10-27", { "0.2.0": 176, "0.2.1": 73, "0.3.0": 125, "0.3.1": 704 }),
+  ...capture("2026-10-28", { "0.2.0": 177, "0.2.1": 74, "0.3.0": 126, "0.3.1": 707 }),
+  ...capture("2026-10-29", { "0.2.0": 179, "0.2.1": 76, "0.3.0": 127, "0.3.1": 714 }),
+  ...capture("2026-10-30", { "0.2.0": 179, "0.2.1": 77, "0.3.0": 127, "0.3.1": 722 }),
+  ...capture("2026-10-31", { "0.2.0": 179, "0.2.1": 77, "0.3.0": 127, "0.3.1": 732 }),
+  ...capture("2026-11-01", { "0.2.0": 179, "0.2.1": 77, "0.3.0": 127, "0.3.1": 738 }),
+  ...capture("2026-11-02", { "0.2.0": 179, "0.2.1": 77, "0.3.0": 127, "0.3.1": 740, "0.4.0": 20 }),
+];
+const RELEASE_1_0 = { event_id: 3, occurred_at: "2026-10-28T13:06:51.000Z", kind: "game_major", title: "SULFUR 1.0 OUT NOW", url: null, source: "steam", mod_id: null };
+
+// The_Dragonblade の 1.0 の行を、0.4.0 の公開日時を付けて計算する(null なら公開日時なし)
+function dragonbladeRow(releasedAt) {
+  const [event] = buildEventImpacts({
+    mods: [DRAGONBLADE],
+    versionSnapshotsByMod: new Map([[15, DRAGONBLADE_ROWS]]),
+    events: [RELEASE_1_0],
+    versionsByMod: new Map([[15, [{ version_number: "0.4.0", released_at: releasedAt }]]]),
+  });
+  return event.mods[0];
+}
+
+describe("buildEventImpacts(取得の直前に公開した版)", () => {
+  test("本番の数字: 日数と旧版のダウンロードは、記録に現れた 11/02 ではなく、公開した 11/01 まで数える", () => {
+    const row = dragonbladeRow("2026-11-01T14:57:52.000Z");
+    assert.equal(row.next_version, "0.4.0");
+    assert.equal(row.next_first_day, "2026-11-02");
+    assert.equal(row.next_day, "2026-11-01");
+    assert.equal(row.days_to_next, 4);
+    // 10/28 から 11/01 までの旧版の増加: 6 + 12 + 9 + 10 + 6。11/02 の +2 は公開の翌日の分なので入れない
+    assert.equal(row.old_downloads, 43);
+    assert.equal(row.old_days, 5);
+    // 新しい版の最初の 2 日は、記録に現れた 11/02 から数える(この表には 11/03 の記録が無いので 1 日分)
+    assert.equal(row.next_first_2_days, 20);
+    assert.equal(row.next_days_counted, 1);
+    assert.equal(row.days_to_90pct, 0);  // 11/02 は 20 / 22 = 90.9%
+  });
+
+  test("本番の数字: 公開日時が分からなければ、今までどおり記録に現れた日まで数える", () => {
+    const row = dragonbladeRow(null);
+    assert.deepEqual(
+      [row.next_first_day, row.next_day, row.days_to_next, row.old_downloads, row.old_days],
+      ["2026-11-02", "2026-11-02", 5, 45, 6],
+    );
+  });
+
+  test("記録に現れた日と同じ日に公開した版は、どちらで数えても同じ", () => {
+    const row = dragonbladeRow("2026-11-02T03:00:00.000Z");  // 日本時間 11/02 12:00
+    assert.deepEqual([row.next_day, row.days_to_next, row.old_downloads], ["2026-11-02", 5, 45]);
+  });
+
+  test("公開日時が記録に現れた日より後を指していたら(配布サイトの値の食い違い)、記録に現れた日を使う", () => {
+    const row = dragonbladeRow("2026-11-05T00:00:00.000Z");
+    assert.deepEqual([row.next_day, row.days_to_next, row.old_downloads], ["2026-11-02", 5, 45]);
+  });
+
+  test("合計の中央値と旧版のダウンロードも、公開した日で数えた値になる", () => {
+    const impacts = buildEventImpacts({
+      mods: [DRAGONBLADE],
+      versionSnapshotsByMod: new Map([[15, DRAGONBLADE_ROWS]]),
+      events: [RELEASE_1_0],
+      versionsByMod: new Map([[15, [{ version_number: "0.4.0", released_at: "2026-11-01T14:57:52.000Z" }]]]),
+    });
+    const [event] = selectEventImpacts(impacts, null);
+    assert.equal(event.summary.median_days_to_next, 4);
+    assert.equal(event.summary.old_downloads_total, 43);
   });
 });
 

@@ -49,13 +49,19 @@
 //                      分かっている限界: 公開日時が分からない版が D の日に現れると、
 //                      更新より前に出していても「更新後」に数えてしまう
 //   next_first_day     next_version が初めて現れた日 "YYYY-MM-DD"
-//   days_to_next       next_first_day − D の日数(同じ日なら 0)
-//   old_downloads      旧版すべての、D から next_first_day までのダウンロードの合計。
+//   next_day           next_version を公開した日 "YYYY-MM-DD"(公開日時を日本時間にした日付)。
+//                      公開日時が分からない版は next_first_day と同じ。
+//                      初めて現れた日ではなく公開した日を使うのは、取得が 1 日 1 回(日本時間 0:00)で、
+//                      取得の直前に公開した版は次の日の記録で初めて現れ、1 日遅く見えるため
+//                      (例: The_Dragonblade 0.4.0 の公開は日本時間 11/01 23:57、記録に現れたのは 11/02 の分から)
+//   days_to_next       next_day − D の日数(同じ日なら 0)
+//   old_downloads      旧版すべての、D から next_day までのダウンロードの合計。
 //                      next_version が無ければ D から記録の最後の日まで。
 //                      記録は 1 日単位なので両端の日をどちらも含める。そのため多めの見積もり(上限の目安)
 //   old_days           old_downloads に実際に足した日数(前日の記録が無く増加を出せない日は数えない)
 //   next_first_2_days  next_version の、初めて現れた日とその翌日のダウンロードの合計
 //                      (mod マネージャーで更新した人の数の下限の目安。Thunderstore でだけ意味がある)
+//                      記録の中での新しい版の動きなので、公開した日ではなく初めて現れた日から数える(days_to_90pct も同じ)
 //   next_days_counted  next_first_2_days に足した日数(翌日の記録がまだ無ければ 1)
 //   days_to_90pct      更新後に出した版(旧版以外のすべての版)がその日の全ダウンロードの 90% 以上になった最初の日が、
 //                      next_version が初めて現れた日から何日後か(0 = 初めて現れた日)。14 日以内に届かなければ null。
@@ -91,7 +97,7 @@ const SHARE_DAYS = 14;
 // 新しい版に移ったとみなす割合
 const SHARE_THRESHOLD = 0.9;
 
-// 出来事の日時(ISO 文字列または Date)→ 日本時間の日付 "YYYY-MM-DD"
+// 日時(ISO 文字列、Date、ミリ秒のどれか)→ 日本時間の日付 "YYYY-MM-DD"。更新の日時と、版の公開日時に使う
 // web/app.js の jstDateKey と同じ計算
 function eventDayKey(occurredAt) {
   return new Date(new Date(occurredAt).getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
@@ -124,7 +130,7 @@ function buildReleasedTimes(versions) {
 // 入力: versionDays(buildVersionDays の結果)、lastDay(その mod の記録の最後の日 "YYYY-MM-DD")、
 //       eventDay(更新日 D "YYYY-MM-DD")、eventTime(更新の時刻、ミリ秒)、
 //       releasedTimes(buildReleasedTimes の結果)
-// 出力: { version_at_event, next_version, next_first_day, days_to_next, old_downloads, old_days,
+// 出力: { version_at_event, next_version, next_first_day, next_day, days_to_next, old_downloads, old_days,
 //         next_first_2_days, next_days_counted, days_to_90pct }
 //       D-1 にこの mod の記録が無ければ null(この更新については何も言えない)
 function buildModImpact(versionDays, lastDay, eventDay, eventTime, releasedTimes) {
@@ -155,8 +161,18 @@ function buildModImpact(versionDays, lastDay, eventDay, eventTime, releasedTimes
     }
   }
 
-  // 旧版のダウンロード: D から(次の版が初めて現れた日 または 記録の最後の日)まで、両端を含む
-  const endDay = nextFirstDay !== null ? nextFirstDay : lastDay;
+  // 次の版を公開した日(日本時間)。公開日時が分からなければ、初めて現れた日で代える。
+  // 公開した日が初めて現れた日より後になることは無いはずだが、配布サイトの値が食い違っていた時は、初めて現れた日を使う
+  let nextDay = nextFirstDay;
+  if (nextVersion !== null && releasedTimes.has(nextVersion)) {
+    const releasedDay = eventDayKey(releasedTimes.get(nextVersion));
+    if (releasedDay < nextFirstDay) {
+      nextDay = releasedDay;
+    }
+  }
+
+  // 旧版のダウンロード: D から(次の版を公開した日 または 記録の最後の日)まで、両端を含む
+  const endDay = nextDay !== null ? nextDay : lastDay;
   let oldDownloads = 0;
   let oldDays = 0;
   for (let key = eventDay; key <= endDay; key = addDays(key, 1)) {
@@ -176,6 +192,7 @@ function buildModImpact(versionDays, lastDay, eventDay, eventTime, releasedTimes
     version_at_event: versionAtEvent,
     next_version: nextVersion,
     next_first_day: nextFirstDay,
+    next_day: nextDay,
     days_to_next: null,
     old_downloads: oldDownloads,
     old_days: oldDays,
@@ -187,7 +204,7 @@ function buildModImpact(versionDays, lastDay, eventDay, eventTime, releasedTimes
     return result;
   }
 
-  result.days_to_next = daysBetween(eventDay, nextFirstDay);
+  result.days_to_next = daysBetween(eventDay, nextDay);
 
   // 次の版の最初の 2 日(初めて現れた日と翌日)のダウンロード
   let firstTwo = 0;
@@ -254,7 +271,7 @@ function sortImpactRows(rows) {
 //                           省略した時と、released_at が null の版は、記録に現れた日だけで旧版かどうかを決める
 // }
 // 出力: [{ event_id, occurred_at, kind, title, url, day,
-//          mods: [{ mod_id, name, platform, needs_fix, version_at_event, next_version, next_first_day, days_to_next,
+//          mods: [{ mod_id, name, platform, needs_fix, version_at_event, next_version, next_first_day, next_day, days_to_next,
 //                   old_downloads, old_days, next_first_2_days, next_days_counted, days_to_90pct }, ...] }, ...]
 //       ※ 新しい更新が先。day は更新日 D。合計(summary)はここでは付けない(selectEventImpacts で付ける)
 function buildEventImpacts({ mods, versionSnapshotsByMod, events, assessments, versionsByMod }) {
