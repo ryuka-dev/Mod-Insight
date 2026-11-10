@@ -7,7 +7,8 @@
 //
 // まず Blob キャッシュ(mods/{modId}/versions.json)を読み、無ければ DB に問い合わせる。
 //
-// 応答: 200 [{ version_id, version_number, release_date, changelog }, ...]
+// 応答: 200 [{ version_id, version_number, release_date, released_at, changelog }, ...]
+//           released_at は配布サイトの公開日時(時刻まで)。分からない版は null
 //       400 { error }(modId が数値でない)
 //       404 { error }(その mod_id の mod がない)
 //       500 { error }
