@@ -9,7 +9,7 @@
 <body>
   <!--
     画面の構成(上から順に):
-      1. ヘッダー        タイトルと一言説明
+      1. ヘッダー        タイトルと一言説明、だれがいつからどの規模で動かしているかの 1 行(下のどの選択も効かない)
       2. フィルター行    配布サイトと期間。全 mod の一覧と、下の mod の詳細の両方に効く
       3. ゲーム更新への対応  ゲームの更新を選ぶと、合計の数字と、mod ごとに新しい版を出すまでの日数と旧版のダウンロード数
                          (行クリックで 6 の mod が切り替わる)。いちばん見てほしい結果なので最初に置く
@@ -23,6 +23,8 @@
   <header class="page-header">
     <h1>Mod Insight</h1>
     <p class="subtitle">Thunderstore と Nexus Mods で公開中の mod のダウンロード数を毎日記録し、推移を可視化するダッシュボード</p>
+    <!-- だれが、いつから、どの規模で動かしているか。数字は app.js が API から入れる(取れない時は出さない) -->
+    <p class="page-facts" id="pageFacts" hidden></p>
   </header>
 
   <section class="filters" aria-label="表示条件">
