@@ -363,6 +363,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* 折りたたみの中の説明は、見出し(summary)とくっつかないよう少し離す */
+.table-details .card-note {
+  margin-top: 8px;
+}
+
 /* 更新後に新しい版を出していない mod の「次の版」の「なし」 */
 td.not-released {
   color: var(--text-muted);
