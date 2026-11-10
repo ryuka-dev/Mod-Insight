@@ -6,7 +6,7 @@
 // 「更新後に最初に出した版までの日数」「その間の旧版のダウンロード」などの定義は eventImpact.js。
 //
 // まず Blob キャッシュ(event-impacts.json = 全プラットフォーム分の計算結果)を読み、
-// 無ければ DB から同じ材料(mod 一覧、mod ごとのバージョン別の時系列、出来事、修正が必要だったかの記録)を読んで計算する。
+// 無ければ DB から同じ材料(mod 一覧、mod ごとのバージョン履歴とバージョン別の時系列、出来事、修正が必要だったかの記録)を読んで計算する。
 // DB の場合は mod の数だけ問い合わせるので遅いが、キャッシュが無い時だけなので許容する。
 // どちらの場合も、最後に selectEventImpacts で platform を絞って合計(summary)を付ける。
 // 修正が必要だったかの記録がある更新では、合計は修正が必要だった mod だけで出す(basis = "needs_fix")。
@@ -51,8 +51,10 @@ app.http("GetEventImpacts", {
 
     try {
       const mods = await db.listMods();
+      const versionsByMod = new Map();
       const versionSnapshotsByMod = new Map();
       for (const mod of mods) {
+        versionsByMod.set(mod.mod_id, await db.listModVersions(mod.mod_id));
         versionSnapshotsByMod.set(mod.mod_id, await db.listVersionSnapshots(mod.mod_id, null, null));
       }
       const events = await db.listEvents();
@@ -62,6 +64,7 @@ app.http("GetEventImpacts", {
         versionSnapshotsByMod: versionSnapshotsByMod,
         events: events,
         assessments: assessments,
+        versionsByMod: versionsByMod,
       });
       return { status: 200, headers: dataSourceHeaders("db"), jsonBody: selectEventImpacts(impacts, platform.value) };
     } catch (err) {
