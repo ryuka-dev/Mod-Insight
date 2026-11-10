@@ -170,13 +170,16 @@ async function rebuildAll(runAt, logger) {
     await write(container, "mods.json", runAt, mods);
     written++;
 
-    // バージョン別の時系列は event-impacts.json でも使うので、mod_id ごとに取っておく(DB に 2 回聞かないため)
+    // バージョン履歴とバージョン別の時系列は event-impacts.json でも使うので、mod_id ごとに取っておく(DB に 2 回聞かないため)
+    const versionsByMod = new Map();
     const versionSnapshotsByMod = new Map();
     for (const mod of mods) {
       const id = mod.mod_id;
       await write(container, modBlobName(id, "summary"), runAt, await db.getModSummary(id));
       await write(container, modBlobName(id, "snapshots"), runAt, await db.listSnapshots(id, null, null));
-      await write(container, modBlobName(id, "versions"), runAt, await db.listModVersions(id));
+      const versions = await db.listModVersions(id);
+      versionsByMod.set(id, versions);
+      await write(container, modBlobName(id, "versions"), runAt, versions);
       const versionSnapshots = await db.listVersionSnapshots(id, null, null);
       versionSnapshotsByMod.set(id, versionSnapshots);
       await write(container, modBlobName(id, "version-snapshots"), runAt, versionSnapshots);
@@ -211,7 +214,7 @@ async function rebuildAll(runAt, logger) {
     await write(container, "events.json", runAt, events);
     written++;
 
-    // ゲーム更新ごとの対応状況。上で読んだ mod 一覧・バージョン別の時系列・出来事と、
+    // ゲーム更新ごとの対応状況。上で読んだ mod 一覧・バージョン履歴・バージョン別の時系列・出来事と、
     // 修正が必要だったかの記録(ここで 1 回だけ問い合わせる)から計算する
     const assessments = await db.listEventModAssessments();
     await write(container, "event-impacts.json", runAt, buildEventImpacts({
@@ -219,6 +222,7 @@ async function rebuildAll(runAt, logger) {
       versionSnapshotsByMod: versionSnapshotsByMod,
       events: events,
       assessments: assessments,
+      versionsByMod: versionsByMod,
     }));
     written++;
 

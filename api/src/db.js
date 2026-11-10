@@ -422,7 +422,8 @@ async function listSnapshots(modId, from, to) {
 
 // バージョン履歴を新しい順に返す
 // 入力: modId(数値)
-// 出力: [{ version_id, version_number, release_date, changelog }, ...]
+// 出力: [{ version_id, version_number, release_date, released_at, changelog }, ...]
+//       released_at は配布サイトの公開日時(時刻まで)。まだ埋まっていない行は null
 async function listModVersions(modId) {
   const pool = await getPool();
 
@@ -430,7 +431,7 @@ async function listModVersions(modId) {
     .request()
     .input("mod_id", sql.Int, modId)
     .query(`
-      SELECT version_id, version_number, release_date, changelog
+      SELECT version_id, version_number, release_date, released_at, changelog
       FROM mod_versions
       WHERE mod_id = @mod_id
       ORDER BY release_date DESC, released_at DESC, version_id DESC;

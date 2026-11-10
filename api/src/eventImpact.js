@@ -27,20 +27,29 @@
 //   日ごとの増加    releaseImpact.js の buildVersionDays と同じ数え方
 //                  (1 日 1 点、前日にその mod の記録が無い日は数えない、新しい版は前日 0 から)
 //   初めて現れた日  その版が初めて記録に現れた日(release_date ではない。理由は releaseImpact.js)
+//   旧版           更新の時点であった版。次のどちらかに当てはまる版
+//                    - 初めて現れた日が D より前
+//                    - 公開日時(mod_versions.released_at)が、更新の時刻(occurred_at)より前
+//                  2 つ目を見るのは、記録が 1 日 1 回で、D の日に現れた版が更新の前に出たのか後に出たのかを
+//                  記録だけでは決められないため。公開が取得の直前だと、前日に出した版が D の日に現れることもある
+//                  (例: ArmsRace 1.0.4 の公開は日本時間 11/09 10:17、パッチ 1.0.6 は同じ日の 19:52。
+//                   記録だけで決めると、更新の 9 時間半前に出した版が「0 日で対応した版」になってしまう)
+//                  公開日時が分からない版は 1 つ目だけで決める
+//                  更新の時刻は Steam のお知らせが投稿された時刻で、ゲームが配信された時刻そのものではない
 //
 // 対象:
 //   D の前日(D-1)に記録がある、非推奨でない mod。
 //   D-1 に記録のある mod が 1 つも無い更新(記録を始める前の更新)は結果に入れない。
 //
 // mod ごとに出すもの:
-//   version_at_event   D-1 の時点であった版のうち、一番新しいもの(初めて現れた日が一番遅いもの。
+//   version_at_event   旧版のうち、一番新しいもの(初めて現れた日が一番遅いもの。
 //                      同じ日に現れた版どうしは記録の並び順 = 公開日順で後のもの)
-//   next_version       初めて現れた日が D 以降の版のうち、最初のもの(更新後に最初に出した版)。無ければ null
-//                      分かっている限界: D の日に、ゲームの更新より前に出した版も「更新後」に数えてしまう
-//                      (記録が 1 日 1 回なので、同じ日の中の前後は分からない)
+//   next_version       旧版でない版のうち、最初に現れたもの(更新後に最初に出した版)。無ければ null
+//                      分かっている限界: 公開日時が分からない版が D の日に現れると、
+//                      更新より前に出していても「更新後」に数えてしまう
 //   next_first_day     next_version が初めて現れた日 "YYYY-MM-DD"
 //   days_to_next       next_first_day − D の日数(同じ日なら 0)
-//   old_downloads      旧版(D-1 の時点であった版すべて)の、D から next_first_day までのダウンロードの合計。
+//   old_downloads      旧版すべての、D から next_first_day までのダウンロードの合計。
 //                      next_version が無ければ D から記録の最後の日まで。
 //                      記録は 1 日単位なので両端の日をどちらも含める。そのため多めの見積もり(上限の目安)
 //   old_days           old_downloads に実際に足した日数(前日の記録が無く増加を出せない日は数えない)
@@ -92,29 +101,51 @@ function daysBetween(earlier, later) {
   return Math.round((Date.parse(`${later}T00:00:00Z`) - Date.parse(`${earlier}T00:00:00Z`)) / DAY_MS);
 }
 
+// バージョン → 公開日時(ミリ秒)の対応を作る
+// 入力: versions(db.listModVersions の結果 = [{ version_number, released_at, ... }, ...]。無ければ undefined)
+//       released_at は DB からは Date、キャッシュからは ISO 文字列で来る。分からない版は null
+// 出力: Map(バージョン → ミリ秒)。公開日時が分からない版は入れない
+function buildReleasedTimes(versions) {
+  const releasedTimes = new Map();
+  for (const version of versions || []) {
+    if (version.released_at === null || version.released_at === undefined) {
+      continue;
+    }
+    const time = new Date(version.released_at).getTime();
+    if (!Number.isNaN(time)) {
+      releasedTimes.set(version.version_number, time);
+    }
+  }
+  return releasedTimes;
+}
+
 // 1 つの mod の、1 つの更新に対する対応状況を計算する
 // 入力: versionDays(buildVersionDays の結果)、lastDay(その mod の記録の最後の日 "YYYY-MM-DD")、
-//       eventDay(更新日 D "YYYY-MM-DD")
+//       eventDay(更新日 D "YYYY-MM-DD")、eventTime(更新の時刻、ミリ秒)、
+//       releasedTimes(buildReleasedTimes の結果)
 // 出力: { version_at_event, next_version, next_first_day, days_to_next, old_downloads, old_days,
 //         next_first_2_days, next_days_counted, days_to_90pct }
 //       D-1 にこの mod の記録が無ければ null(この更新については何も言えない)
-function buildModImpact(versionDays, lastDay, eventDay) {
+function buildModImpact(versionDays, lastDay, eventDay, eventTime, releasedTimes) {
   const { byDay, daily, firstDays } = versionDays;
   const dayBefore = addDays(eventDay, -1);
   if (!byDay.has(dayBefore)) {
     return null;
   }
 
-  // 旧版(D-1 の時点であった版)と、更新後に最初に出した版を決める
+  // 旧版(更新の時点であった版)と、更新後に最初に出した版を決める
   // firstDays は初めて現れた日の古い順に並んでいるので、
-  //   旧版のうち最後に見つかったもの = 一番新しい旧版、
-  //   D 以降で最初に見つかったもの   = 更新後に最初に出した版
+  //   旧版のうち最後に見つかったもの     = 一番新しい旧版、
+  //   旧版でないもので最初に見つかったもの = 更新後に最初に出した版
   const oldVersions = new Set();
   let versionAtEvent = null;
   let nextVersion = null;
   let nextFirstDay = null;
   for (const [version, firstDay] of firstDays) {
-    if (firstDay < eventDay) {
+    // 更新日より前に記録に現れたか、公開日時が更新の時刻より前なら旧版(上の「言葉の決まり」)
+    const releasedTime = releasedTimes.get(version);
+    const releasedBeforeEvent = releasedTime !== undefined && releasedTime < eventTime;
+    if (firstDay < eventDay || releasedBeforeEvent) {
       oldVersions.add(version);
       versionAtEvent = version;
     } else if (nextVersion === null) {
@@ -218,12 +249,14 @@ function sortImpactRows(rows) {
 //   versionSnapshotsByMod:  Map(mod_id → db.listVersionSnapshots(mod_id, null, null) の結果)
 //   events:                 db.listEvents() の結果([{ event_id, occurred_at, kind, title, url, ... }, ...])
 //   assessments:            db.listEventModAssessments() の結果([{ event_id, mod_id, needs_fix }, ...])。省略時は記録なし
+//   versionsByMod:          Map(mod_id → db.listModVersions(mod_id) の結果)。版の公開日時(released_at)を見るために使う。
+//                           省略した時と、released_at が null の版は、記録に現れた日だけで旧版かどうかを決める
 // }
 // 出力: [{ event_id, occurred_at, kind, title, url, day,
 //          mods: [{ mod_id, name, platform, needs_fix, version_at_event, next_version, next_first_day, days_to_next,
 //                   old_downloads, old_days, next_first_2_days, next_days_counted, days_to_90pct }, ...] }, ...]
 //       ※ 新しい更新が先。day は更新日 D。合計(summary)はここでは付けない(selectEventImpacts で付ける)
-function buildEventImpacts({ mods, versionSnapshotsByMod, events, assessments }) {
+function buildEventImpacts({ mods, versionSnapshotsByMod, events, assessments, versionsByMod }) {
   // "event_id/mod_id" → needs_fix(true / false)。無い組み合わせは未確認
   const needsFixByKey = new Map();
   for (const assessment of assessments || []) {
@@ -242,7 +275,8 @@ function buildEventImpacts({ mods, versionSnapshotsByMod, events, assessments })
     if (keys.length === 0) {
       continue;
     }
-    modDays.push({ mod: mod, versionDays: versionDays, lastDay: keys[keys.length - 1] });
+    const releasedTimes = buildReleasedTimes(versionsByMod ? versionsByMod.get(mod.mod_id) : undefined);
+    modDays.push({ mod: mod, versionDays: versionDays, lastDay: keys[keys.length - 1], releasedTimes: releasedTimes });
   }
 
   const results = [];
@@ -251,9 +285,10 @@ function buildEventImpacts({ mods, versionSnapshotsByMod, events, assessments })
       continue;
     }
     const eventDay = eventDayKey(event.occurred_at);
+    const eventTime = new Date(event.occurred_at).getTime();
     const rows = [];
-    for (const { mod, versionDays, lastDay } of modDays) {
-      const impact = buildModImpact(versionDays, lastDay, eventDay);
+    for (const { mod, versionDays, lastDay, releasedTimes } of modDays) {
+      const impact = buildModImpact(versionDays, lastDay, eventDay, eventTime, releasedTimes);
       if (impact === null) {
         continue;
       }
