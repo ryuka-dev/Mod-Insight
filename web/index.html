@@ -11,9 +11,10 @@
     画面の構成(上から順に):
       1. ヘッダー        タイトルと一言説明
       2. フィルター行    配布サイトと期間。全 mod の一覧と、下の mod の詳細の両方に効く
-      3. 全 mod の状況   合計の数字、合計の推移、mod ごとの一覧表(行クリックで 4 の mod が切り替わる)
-      4. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均、期間内のゲームの出来事(グラフの縦線の説明)
-      5. ゲーム更新への対応  ゲームの更新を選ぶと、mod ごとに新しい版を出すまでの日数と旧版のダウンロード数(行クリックで 6 の mod が切り替わる)
+      3. ゲーム更新への対応  ゲームの更新を選ぶと、合計の数字と、mod ごとに新しい版を出すまでの日数と旧版のダウンロード数
+                         (行クリックで 6 の mod が切り替わる)。いちばん見てほしい結果なので最初に置く
+      4. 全 mod の状況   合計の数字、合計の推移、mod ごとの一覧表(行クリックで 6 の mod が切り替わる)
+      5. 日ごとの増加    全 mod で 1 日に増えた数と 7 日平均、期間内のゲームの出来事(グラフの縦線の説明)
       6. mod の詳細      見出しの横のセレクトボックスで mod を選ぶ。今の数字、推移、バージョン別、公開の前後、バージョン履歴
       7. 運用状況        運用費用と取得ジョブの実行記録(システム全体の記録なので、上のどの選択も効かない)
     データはすべて app.js が API から取ってきて、この HTML の空の要素に流し込む。
@@ -42,6 +43,36 @@
   <p id="errorBox" class="error-box" hidden></p>
 
   <main id="content" class="content">
+    <!-- ゲーム更新ごとの mod の対応状況(プラットフォームが効く。期間は効かない)。取れない時や対象の更新が無い時は app.js がカードごと隠す。
+         このシステムでいちばん見てほしい結果なので、最初のカードにしている -->
+    <section class="card" id="eventImpactCard" aria-label="ゲーム更新への対応" hidden>
+      <h2 class="card-title">ゲーム更新への対応</h2>
+      <p class="card-note">ゲームの大型アップデートやパッチのあとに、各 mod が最初に出した版(次の版)と、それまでに更新前の版(旧版)がダウンロードされた回数です。ゲームが更新されても、そのまま動く mod は新しい版を出す必要がありません。ダウンロード数からは mod が動かなくなったかどうかが分からないため、「修正」の列には、作者がゲームの新しいビルドで各 mod を確かめた結果を載せています。「必要」は、その更新の時点で修正が必要な状態だったという意味で、前の更新で必要になってまだ直していなかった mod も含みます。この列がある更新では、修正が必要だった mod だけを合計しています。「記録日」は次の版が初めて記録された日、「日数」は更新日からその日までです。「旧版 DL」は 1 日単位の記録から数えていて、更新日と記録日の両方を含むため、実際より多めになります。「最初の 2 日」は次の版の最初の 2 日のダウンロードで、mod マネージャーで更新した人数のおおよその下限です(Thunderstore でだけ意味があります)。「90% まで」は、旧版以外のダウンロードがその日の 90% を超えるまでの日数です。日付は日本時間です。行をクリックすると、下の詳細がその mod に切り替わります。</p>
+      <label class="event-impact-picker">
+        <span class="filter-label">ゲームの更新</span>
+        <select id="eventImpactSelect"></select>
+      </label>
+      <ul id="eventImpactSummary" class="event-impact-summary"></ul>
+      <div class="table-scroll">
+        <table id="eventImpactTable">
+          <thead>
+            <tr>
+              <th>Mod</th>
+              <th id="eventImpactFixHead" hidden>修正</th>
+              <th>更新時の版</th>
+              <th>次の版</th>
+              <th>記録日</th>
+              <th class="num">日数</th>
+              <th class="num">旧版 DL</th>
+              <th class="num">最初の 2 日</th>
+              <th class="num">90% まで</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- 全 mod の一覧(プラットフォームと期間フィルターが効く。mod の選択とは無関係) -->
     <section class="card" aria-label="全 mod の一覧">
       <h2 class="card-title">全 mod の状況</h2>
@@ -107,35 +138,6 @@
           </table>
         </div>
       </details>
-    </section>
-
-    <!-- ゲーム更新ごとの mod の対応状況(プラットフォームが効く。期間は効かない)。取れない時や対象の更新が無い時は app.js がカードごと隠す -->
-    <section class="card" id="eventImpactCard" aria-label="ゲーム更新への対応" hidden>
-      <h2 class="card-title">ゲーム更新への対応</h2>
-      <p class="card-note">ゲームの大型アップデートやパッチのあとに、各 mod が最初に出した版(次の版)と、それまでに更新前の版(旧版)がダウンロードされた回数です。ゲームが更新されても、そのまま動く mod は新しい版を出す必要がありません。ダウンロード数からは mod が動かなくなったかどうかが分からないため、「修正」の列には、作者がゲームの新しいビルドで各 mod を確かめた結果を載せています。「必要」は、その更新の時点で修正が必要な状態だったという意味で、前の更新で必要になってまだ直していなかった mod も含みます。この列がある更新では、修正が必要だった mod だけを合計しています。「記録日」は次の版が初めて記録された日、「日数」は更新日からその日までです。「旧版 DL」は 1 日単位の記録から数えていて、更新日と記録日の両方を含むため、実際より多めになります。「最初の 2 日」は次の版の最初の 2 日のダウンロードで、mod マネージャーで更新した人数のおおよその下限です(Thunderstore でだけ意味があります)。「90% まで」は、旧版以外のダウンロードがその日の 90% を超えるまでの日数です。日付は日本時間です。行をクリックすると、下の詳細がその mod に切り替わります。</p>
-      <label class="event-impact-picker">
-        <span class="filter-label">ゲームの更新</span>
-        <select id="eventImpactSelect"></select>
-      </label>
-      <ul id="eventImpactSummary" class="event-impact-summary"></ul>
-      <div class="table-scroll">
-        <table id="eventImpactTable">
-          <thead>
-            <tr>
-              <th>Mod</th>
-              <th id="eventImpactFixHead" hidden>修正</th>
-              <th>更新時の版</th>
-              <th>次の版</th>
-              <th>記録日</th>
-              <th class="num">日数</th>
-              <th class="num">旧版 DL</th>
-              <th class="num">最初の 2 日</th>
-              <th class="num">90% まで</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
     </section>
 
     <!-- ここから下は選択中の 1 つの mod の詳細。mod の選択はこの見出しの横に置く(効く範囲のすぐ上) -->
